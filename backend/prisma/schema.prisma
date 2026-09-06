@@ -74,11 +74,12 @@ model User {
 
   sessions       Session[]
   passwordResets PasswordReset[]
-  profiles     CandidateProfile[]
-  skillsReserve SkillsReserve[]
-  matchScores  MatchScore[]
-  applications Application[]
-  answers      ApplicationAnswers?
+  profiles       CandidateProfile[]
+  skillsReserve  SkillsReserve[]
+  matchScores    MatchScore[]
+  applications   Application[]
+  answers        ApplicationAnswers?
+  settingsTouched AppSetting[]
 
   @@index([role])
   /// The admin approval queue: pending accounts, oldest first.
@@ -196,8 +197,15 @@ model AppSetting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
-  updatedBy String?
 
+  /// SetNull, not Cascade: deleting the admin who last changed a setting must not
+  /// delete the setting. It was an unconstrained String before, which meant it
+  /// could hold an id belonging to nobody - "who changed this?" answerable only
+  /// by a lookup that returns nothing.
+  updatedBy String?
+  updatedByUser User? @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([updatedBy])
   @@map("app_settings")
 }
 
@@ -216,8 +224,14 @@ model ApplicationAnswers {
   workAuthorization String? /// e.g. "Indian citizen, no sponsorship required"
   needsSponsorship  Boolean?
   noticePeriodDays  Int?
-  currentCtcLpa     Float?
-  expectedCtcLpa    Float?
+
+  /// Decimal, not Float. These are money, and they get typed into a real
+  /// employer's salary field - a binary float cannot represent 12.1 exactly, so
+  /// Float turns a figure the candidate entered into one they did not. Decimal(6,2)
+  /// holds up to 9999.99 LPA at exactly two places.
+  currentCtcLpa  Decimal? @db.Decimal(6, 2)
+  expectedCtcLpa Decimal? @db.Decimal(6, 2)
+
   willingToRelocate Boolean?
   earliestStartDate DateTime?
   /// Free-form { question: answer } for recurring screening questions the
@@ -251,14 +265,7 @@ model CandidateProfile {
   github    String?
   portfolio String?
 
-  /// Array of:
-  ///   { id, kind: 'bullet'|'skill'|'role'|'edu', text, tech[], metrics[],
-  ///     employer, dateRange }
-  /// Produced by the LLM at ingest, then confirmed by a human before anything
-  /// downstream is allowed to use it.
-  atoms Json
-
-  /// Whole-profile vector. Per-atom vectors live in ProfileAtomEmbedding.
+  /// Whole-profile vector. Per-atom vectors live on ProfileAtom.
   embedding Unsupported("vector(384)")?
 
   sourceResumePath String?
@@ -266,8 +273,8 @@ model CandidateProfile {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  atomEmbeddings ProfileAtomEmbedding[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  atoms          ProfileAtom[]
   resumeVariants ResumeVariant[]
 
   @@unique([userId, label])
@@ -275,19 +282,69 @@ model CandidateProfile {
   @@map("candidate_profiles")
 }
 
-/// One row per atom, so an atom can be matched to a JD individually rather than
-/// only via the whole-profile vector.
-model ProfileAtomEmbedding {
-  id        String                     @id @default(uuid())
+enum AtomKind {
+  BULLET
+  SKILL
+  ROLE
+  EDU
+}
+
+/// One row per atom - the smallest unit of truth about the candidate, and the
+/// ONLY thing tailoring may draw from.
+///
+/// WAS a `atoms Json` column on CandidateProfile with a parallel
+/// `profile_atom_embeddings` table keyed by an `atomId` that lived inside that
+/// JSON. That is a foreign key Postgres cannot enforce: editing the JSON to drop
+/// an atom left its embedding row behind, still matchable against a JD, so
+/// tailoring could surface a bullet the candidate had deleted. A real table with
+/// a real FK and ON DELETE CASCADE makes that state unreachable rather than
+/// merely unlikely.
+///
+/// The embedding moved here too, so there is one row per atom instead of two
+/// that have to be kept in step.
+model ProfileAtom {
+  id        String   @id @default(uuid())
   profileId String
-  atomId    String
-  text      String
+  kind      AtomKind
+  text      String   @db.Text
+
+  /// Tech tags and quantified results, stayed as arrays on purpose. Nothing
+  /// references an individual tag by identity - the provenance guard consumes
+  /// them as a set of strings - so promoting them to tables would add two joins
+  /// and remove no failure mode. Contrast the atom id above, which WAS being
+  /// referenced.
+  tech    String[]
+  metrics String[]
+
+  employer  String?
+  dateRange String?
+
+  /// Display order within the profile. Explicit because the resume's ordering is
+  /// a human decision, and `ORDER BY createdAt` would silently reshuffle a
+  /// profile after an atom is re-ingested.
+  ordinal Int
+
+  /// Per-atom vector, so an atom can be matched to a JD individually rather than
+  /// only via the whole-profile vector.
   embedding Unsupported("vector(384)")?
+
+  /// Hash of the `text` the vector above was computed from. When it stops
+  /// matching, the vector is stale and must be recomputed - the same staleness
+  /// check JobPosting.contentHash performs. Null until first embedded.
+  ///
+  /// This is the one duplicated value kept here deliberately: without it, an
+  /// edited atom keeps a vector describing its OLD text, and nothing anywhere
+  /// says so.
+  embeddedTextHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
-  @@unique([profileId, atomId])
-  @@map("profile_atom_embeddings")
+  @@unique([profileId, ordinal])
+  @@index([profileId, kind])
+  @@map("profile_atoms")
 }
 
 /// Skills the candidate genuinely has but chose not to list on the resume.
@@ -432,6 +489,19 @@ enum SalarySource {
   UNKNOWN
 }
 
+/// What salaryMin/salaryMax are denominated over.
+///
+/// Was a free String. The live data already held both `null` and `'year'`, and
+/// nothing stopped a connector writing `'yearly'`, `'annual'` or `'YEAR'` next -
+/// at which point a salary filter silently skips those rows instead of failing.
+/// An enum makes the set closed and the mistake a write error.
+enum SalaryPeriod {
+  YEAR
+  MONTH
+  DAY
+  HOUR
+}
+
 model JobPosting {
   id          String  @id @default(uuid())
   source      String /// connector id: 'greenhouse' | 'lever' | ...
@@ -449,11 +519,17 @@ model JobPosting {
   yoeMin     Int?
   yoeMax     Int?
 
-  salaryMin        Int?
-  salaryMax        Int?
+  /// Decimal, not Int. An hourly or monthly figure is not a whole number, and
+  /// Int silently truncated it. Decimal(14,2) covers an annual INR figure with
+  /// room to spare.
+  salaryMin Decimal? @db.Decimal(14, 2)
+  salaryMax Decimal? @db.Decimal(14, 2)
+
+  /// ISO 4217, three upper-case letters - enforced by a CHECK rather than an enum
+  /// because the value set is large, externally defined, and not ours to close.
   salaryCurrency   String?
-  salaryPeriod     String?
-  salarySource     SalarySource @default(UNKNOWN)
+  salaryPeriod     SalaryPeriod?
+  salarySource     SalarySource  @default(UNKNOWN)
   salaryConfidence Float?
 
   applyUrl String
@@ -507,8 +583,11 @@ model MatchScore {
   reasons       String[]
   missingSkills String[]
 
-  estimatedSalaryLPA Float?
-  salaryConfidence   Float?
+  /// Decimal for the same reason as ApplicationAnswers.currentCtcLpa: this figure
+  /// is shown to the candidate as a number to negotiate against.
+  estimatedSalaryLPA Decimal? @db.Decimal(6, 2)
+
+  salaryConfidence Float?
 
   /// Recorded so a quality regression can be traced to a provider. This is one
   /// of the four defenses against the two environments quietly diverging.
@@ -587,8 +666,17 @@ model Application {
   normalizedTitle String
   status          ApplicationStatus @default(QUEUED)
 
-  resumeVariantId  String?
-  coverLetter      String? @db.Text
+  resumeVariantId String?
+
+  /// ONLY for an application with no ResumeVariant - a job reached through a
+  /// manual-open link, where there is no generated variant to hold the text.
+  ///
+  /// A CHECK enforces that this and resumeVariantId are mutually exclusive. It
+  /// used to be neither documented nor constrained, so the same cover letter could
+  /// sit here AND on the variant with nothing saying which one was sent. Making
+  /// them exclusive is what removes the ambiguity; a comment alone would not.
+  coverLetter String? @db.Text
+
   screeningAnswers Json?
 
   /// Percentage of required fields the adapter managed to fill. This is the

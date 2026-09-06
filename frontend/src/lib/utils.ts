@@ -63,20 +63,37 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 export function salaryText(job: {
-  salaryMin: number | null;
-  salaryMax: number | null;
+  // Decimal columns arrive as decimal STRINGS - see JobRow in api.ts. Numbers are
+  // still accepted so a caller holding an already-parsed figure does not have to
+  // stringify it just to call this.
+  salaryMin: string | number | null;
+  salaryMax: string | number | null;
   salaryCurrency: string | null;
 }): string {
-  if (job.salaryMin === null && job.salaryMax === null) {
+  if (job.salaryMin == null && job.salaryMax == null) {
     // Not a gap to apologise for: the spike measured stated salary on 0.3% of
     // India postings. "Not stated" IS the normal case here.
     return 'Not stated';
   }
   const cur = job.salaryCurrency === 'INR' ? '₹' : '$';
-  const fmt = (v: number) =>
-    v >= 100_000 ? `${Math.round(v / 1000)}k` : v.toLocaleString('en-IN');
-  if (job.salaryMin !== null && job.salaryMax !== null) {
+
+  // The coercion is explicit and happens once. Left implicit, `'50000' >= 100_000`
+  // would still work by coercion while `'50000'.toLocaleString('en-IN')` would
+  // return the string untouched - printing ₹50000 instead of ₹50,000. A quiet
+  // wrong answer rather than an error, which is the kind this function should not
+  // be able to give.
+  const fmt = (raw: string | number) => {
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return '—';
+    // Float is fine HERE and only here: this is a rounded display label, not a
+    // figure anyone computes with. Exactness is the database's job.
+    return v >= 100_000
+      ? `${Math.round(v / 1000)}k`
+      : v.toLocaleString('en-IN');
+  };
+
+  if (job.salaryMin != null && job.salaryMax != null) {
     return `${cur}${fmt(job.salaryMin)}–${fmt(job.salaryMax)}`;
   }
-  return `${cur}${fmt((job.salaryMin ?? job.salaryMax)!)}`;
+  return `${cur}${fmt(job.salaryMin ?? job.salaryMax!)}`;
 }

@@ -27,3 +27,6 @@ next-env.d.ts
 
 # Spike scripts kept for reference; their output data is disposable.
 /spike/*.json
+
+# Local pre-migration database dumps. Real candidate data, and large.
+.backups/

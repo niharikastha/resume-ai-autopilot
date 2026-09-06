@@ -18,6 +18,7 @@ import {
   PrismaClient,
   RemoteType,
   Role,
+  SalaryPeriod,
   SalarySource,
 } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -135,11 +136,22 @@ function seniority(title: string): string | null {
 }
 
 function normalizeTitle(title: string): string {
-  return title
+  // \p{L}\p{N} rather than a-z0-9. The ASCII class stripped every character of a
+  // Japanese title, leaving '' - and an empty normalizedTitle is not cosmetic:
+  // applications has UNIQUE(userId, companyId, normalizedTitle), so every posting
+  // that normalizes to '' collides with every other one at that company, and the
+  // second application is refused as a duplicate of a role it has nothing to do
+  // with. Two such rows existed until the migration backfilled them.
+  const normalized = title
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // A title made only of punctuation still normalizes to nothing. Falling back to
+  // the raw title keeps this function's promise - never empty for a non-empty
+  // input - which is what the CHECK constraint relies on.
+  return normalized || title.toLowerCase().trim();
 }
 
 /** Light-touch parse. Returns null for the common case of no usable figure. */
@@ -256,7 +268,17 @@ async function main(): Promise<void> {
 
     await prisma.jobPosting.upsert({
       where: { source_sourceJobId: { source: p.ats, sourceJobId } },
-      update: { lastSeenAt: new Date() },
+      // normalizedTitle is recomputed on every run, not just on insert. It is a
+      // DERIVED value, so when normalizeTitle is corrected the existing rows are
+      // wrong until something rewrites them - and this is the only thing that
+      // does. Leaving it out is how the migration's raw-title backfill would have
+      // stayed in place, punctuation and all, as a dedup key that no longer
+      // matches what a fresh row would get.
+      update: {
+        lastSeenAt: new Date(),
+        title: p.title.trim(),
+        normalizedTitle: normalizeTitle(p.title),
+      },
       create: {
         source: p.ats,
         sourceJobId,
@@ -270,10 +292,13 @@ async function main(): Promise<void> {
         location,
         remoteType: remoteType(location),
         seniority: seniority(p.title),
-        salaryMin: salary ? Math.round(salary.min) : null,
-        salaryMax: salary ? Math.round(salary.max) : null,
+        // toFixed, not Math.round: the columns are numeric(14,2) now, so rounding
+        // to a whole unit would discard precision the type change exists to keep.
+        // A string keeps the value out of float arithmetic entirely.
+        salaryMin: salary ? salary.min.toFixed(2) : null,
+        salaryMax: salary ? salary.max.toFixed(2) : null,
         salaryCurrency: salary?.currency ?? null,
-        salaryPeriod: salary ? 'year' : null,
+        salaryPeriod: salary ? SalaryPeriod.YEAR : null,
         salarySource: salary ? SalarySource.STATED : SalarySource.UNKNOWN,
         applyUrl,
         atsType: ATS_MAP[p.ats] ?? AtsType.UNKNOWN,

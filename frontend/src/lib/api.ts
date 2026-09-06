@@ -219,9 +219,17 @@ export interface JobRow {
   atsType: string;
   postedAt: string | null;
   firstSeenAt: string;
-  salaryMin: number | null;
-  salaryMax: number | null;
+  /**
+   * STRINGS, not numbers. These columns are `numeric` in Postgres so that a
+   * salary figure is exact, and Prisma serializes a Decimal to a decimal string
+   * rather than risk a float on the way through JSON. Typing them as `number`
+   * here would be a lie the compiler could not catch, since nothing checks this
+   * interface against the API at build time.
+   */
+  salaryMin: string | null;
+  salaryMax: string | null;
   salaryCurrency: string | null;
+  salaryPeriod: 'YEAR' | 'MONTH' | 'DAY' | 'HOUR' | null;
   company: { name: string; tier: string; atsType: string } | null;
   matchScores: { score: number; verdict: string }[];
 }
