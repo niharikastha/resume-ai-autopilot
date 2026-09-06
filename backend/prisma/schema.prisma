@@ -18,6 +18,11 @@ generator client {
 }
 
 datasource db {
+  // No `url` here. Prisma 7 takes the connection string from prisma.config.ts,
+  // which loads the repo-root .env - so this block looks incomplete but is not.
+  //
+  // Kept INSIDE the braces on purpose: `prisma generate` runs its formatter over
+  // this file and silently deletes comments sitting above a datasource block.
   provider = "postgresql"
 }
 
