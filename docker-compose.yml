@@ -33,6 +33,35 @@ services:
       timeout: 5s
       retries: 10
 
+  # A database browser, for looking at rows by hand. Start it with
+  # `npm run db:adminer`; stop it with `npm run db:adminer:stop`.
+  #
+  # Behind a compose PROFILE on purpose, so it is opt-in. Without the profile it
+  # would come up on every `npm run dev`, and this is an unauthenticated web UI
+  # with full write access to the database - fine when you deliberately open it,
+  # not something that should sit there listening all day.
+  #
+  # Bound to 127.0.0.1, never 0.0.0.0. A bare '8081:8080' would publish it on
+  # every network interface, so anyone on the same wifi could read and edit the
+  # database with no password at all. Docker's port publishing also punches
+  # straight through ufw, so the firewall would not save you.
+  adminer:
+    image: adminer:5
+    container_name: autopilot-adminer
+    profiles: [tools]
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${ADMINER_PORT:-8081}:8080'
+    environment:
+      # Pre-fills the "Server" box. This is the compose service name, reached on
+      # the internal network at the standard 5432 - NOT localhost:5433, which is
+      # only how the port looks from outside Docker.
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: dracula
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:

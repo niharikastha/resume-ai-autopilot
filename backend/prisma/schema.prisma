@@ -17,8 +17,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// The datasource URL is supplied by prisma.config.ts, which loads the repo-root
-// .env. Prisma 7 reads connection config from there rather than from `url` here.
 datasource db {
   provider = "postgresql"
 }

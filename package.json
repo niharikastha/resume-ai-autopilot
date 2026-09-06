@@ -25,6 +25,8 @@
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f",
+    "db:adminer": "docker compose --profile tools up -d adminer",
+    "db:adminer:stop": "docker compose --profile tools stop adminer",
     "db:generate": "npm run prisma:generate -w @job-autopilot/backend",
     "db:migrate": "npm run prisma:migrate -w @job-autopilot/backend",
     "db:migrate:deploy": "npm run prisma:migrate:deploy -w @job-autopilot/backend",
