@@ -1,0 +1,716 @@
+================================================================================
+AUTOPILOT - Daily Job Discovery, Resume Tailoring & Assisted Apply
+Implementation Plan v2  (supersedes PLAN.txt)
+================================================================================
+Author:  planned with Claude Code
+Date:    2026-09-05
+Status:  Approved, not yet implemented
+Basis:   v1 + findings from the discovery spike (spike/, run 2026-09-05)
+
+PLAN.txt (v1) is kept on disk. It remains correct on the parts this revision
+does not touch: the ToS reasoning, the four constraints, the provenance-guard
+design, the dual-provider cost model, and the verification list. Read v1 for the
+"why" behind those. Read this file for what to build and in what order.
+
+
+================================================================================
+1. WHAT THE SPIKE CHANGED
+================================================================================
+
+Measured: 140 company slugs probed across Greenhouse / Lever / Ashby / Workable.
+600 requests, 0 network errors, 34 live boards, 4,804 live postings.
+
+  4,804   live postings across 34 boards
+    699   located in India
+    196   India + engineering
+    115   India + engineering, minus staff/principal/manager   <- working pool
+     69   ...also minus senior/lead                            <- conservative
+
+These are LIVE postings, not daily arrivals. Postings stay open ~4-6 weeks, so
+115 live roles across 22 productive boards is roughly 3 NEW relevant roles/day.
+
+--------------------------------------------------------------------------------
+CONFIRMED - v1 was right, no change needed
+--------------------------------------------------------------------------------
+Indian companies DO use Greenhouse / Lever / Ashby. Confirmed live: Paytm,
+Meesho, Groww, Navi, Zeta, Epifi, Slice, InMobi, Glance, Postman, Atlan,
+Mindtickle, Druva, Netradyne, HackerRank, Sarvam, Sigmoid, ObserveAI, Turing.
+
+The pre-spike worry that these vendors were US-only and would miss the Indian
+market was wrong. v1's connector choices stand.
+
+--------------------------------------------------------------------------------
+CHANGE 1 - Volume expectation was off by ~2 orders of magnitude
+--------------------------------------------------------------------------------
+v1 assumed ~800 raw postings/DAY. Reality is ~3 relevant NEW roles/day from 22
+boards. The funnel shape in v1 phase 3 (800 -> 150 -> 60 -> 12) is wrong and its
+thresholds must be re-derived against real data, not assumed.
+
+CONSEQUENCE: the bottleneck of this entire project is the SIZE OF THE COMPANY
+LIST, not connector code. Four connectors already cover the market. 22 productive
+boards yielded ~5 reachable roles each, so the v1 output target of 8-12
+applications/day needs ~80-100 productive boards, which means a seed list of
+400-500 companies.
+
+companies.yaml is therefore the load-bearing artifact of the project. In v1,
+`companies:probe` was a convenience mentioned in passing. It is now a
+first-class deliverable and the highest-leverage thing to build.
+
+REVISED OUTPUT EXPECTATION: 3-6 applications/day initially, scaling toward 8-12
+as the company list grows. Not 8-12 on day one.
+
+--------------------------------------------------------------------------------
+CHANGE 2 - Salary data for India is not 'often absent', it is absent
+--------------------------------------------------------------------------------
+  All postings with structured salary     891 / 4,804   (18.5%)
+  INDIA postings with structured salary       2 / 699   ( 0.3%)
+
+Both India instances were junk (`0-0 INR/per-year-salary`). Every real salary
+found was USD on a US-located role. Lever's salaryRange and Ashby's
+includeCompensation are populated - but only by US employers.
+
+v1's three-tier design (stated -> estimated -> unknown) survives, but tier 1 is
+EMPTY IN PRACTICE for Indian postings. A salary-based ranking signal has almost
+no data to read.
+
+REPLACEMENT SIGNAL: company tier. Knowing "Databricks, Bengaluru" predicts pay
+far better than any posting field will. Company.tier already exists in the v1
+schema; it is promoted from a salary-estimation hint to the PRIMARY pay proxy.
+
+  STARTING BANDS - these are estimates to calibrate against real offers,
+  not researched figures. Revise as data arrives.
+    T1  US/global company, India engineering office      ~Rs 25-50 LPA
+    T2  Well-funded Indian product startup               ~Rs 18-35 LPA
+    T3  Indian mid-market product company                ~Rs 8-18 LPA
+    T4  Services / staffing / consultancy                ~Rs 6-12 LPA
+
+  Ranking prefers T1 > T2 > T3, and T4 is kept but ranked last. A STATED salary
+  still overrides the tier when present. LLM salary estimation is retained but
+  demoted to a tie-breaker, since it will be guessing from company name and job
+  text in ~99.7% of Indian cases.
+
+--------------------------------------------------------------------------------
+CHANGE 3 - Drop the Indian ATS vendors. Add SmartRecruiters.
+--------------------------------------------------------------------------------
+The v1 open question "should we add Keka / Zoho Recruit / Darwinbox" is now
+answered: no. All three were probed.
+
+  KEKA         Real, and robots.txt explicitly ALLOWS /careers (Disallow: /,
+               Allow: /careers) - so it would be legally clean. But job data is
+               client-rendered with no JSON route. /careers/api/embedjobs/all
+               returns an empty 37KB shell on live tenants and FORBIDDEN ACCESS
+               on others. Would need a headless browser per company.
+               VERDICT: too expensive per company. Skip.
+
+  ZOHO RECRUIT Job data is embedded in the page, but as a ~1.8MB blob of
+               HTML-entity-escaped JSON. Worse: 0 of 12 real-company guesses
+               were live tenants (only Zoho's own `zylker` demo responded), so
+               tenant discovery is itself unsolved.
+               VERDICT: skip.
+
+  DARWINBOX    Returns a byte-identical 1,901b SPA shell for real and fake
+               tenants alike. Nothing verifiable without a browser.
+               VERDICT: skip.
+
+  NOTE ON STATUS CODES: Keka, Zoho and Darwinbox all return HTTP 200 for
+  non-existent tenants (Keka serves TenantNotFound.html, Zoho an error page).
+  Any future connector for these MUST detect absence by body content, never by
+  status code. This trap is why the first sweep over-reported hits.
+
+  SMARTRECRUITERS - PROMOTE. Clean JSON, and it supports a native `country=in`
+  filter. Bosch alone returned 543 India postings. Listed but unprioritized in
+  v1; it becomes the third connector built.
+
+--------------------------------------------------------------------------------
+CHANGE 4 - The sleeper source: US companies with Indian offices
+--------------------------------------------------------------------------------
+Not identified in v1. Highest-yield boards found, all on the four connectors
+already planned, all paying above the Rs 12-18 LPA target band:
+
+  Databricks   94 India postings (22 reachable) - best single board found
+  Stripe       40      Netskope  19      Druva  17      Coinbase  15
+
+This vein needs ZERO new connector work and is T1 on the tier scale. It should
+be a deliberate seeding category, not an accident.
+
+--------------------------------------------------------------------------------
+CAVEATS ON THE SPIKE'S OWN NUMBERS
+--------------------------------------------------------------------------------
+Stated so they are not mistaken for precision:
+  - The slug list was guesswork (~24% hit rate), so the true universe is LARGER
+    than 34 boards. The 115 figure is a floor, not a ceiling.
+  - The seniority filter is title-keyword based. "SDE IV" slipped through as
+    reachable; some genuinely reachable "Senior" roles were excluded. Treat 115
+    as approximate. The SHAPE is reliable; the exact number is not.
+  - Only 4 of the 15 v1 sources were probed. Aggregators are unmeasured.
+  - One snapshot on one day. Nothing here measures seasonality.
+
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+UNCHANGED from v1 section 2. Single Nest.js 11 app + BullMQ worker, Postgres 16
+with pgvector, Redis, PM2, optional Next.js dashboard later.
+
+Pipeline stays a chain of independently retryable BullMQ jobs:
+
+  discover -> normalize -> filter -> embed -> score -> tailor -> prefill -> record
+
+DATA MODEL: unchanged from v1 section 3, with two additions.
+
+  Company        + yieldStats Json   { lastFetchedAt, postingsSeen,
+                                       reachableSeen, consecutiveEmptyRuns }
+                 tier is now REQUIRED, not optional (see change 2).
+
+  CompanyProbe   NEW. Records every slug guess and its outcome, so the list
+                 builder never re-probes a known-dead slug.
+                 { slugTried, atsType, result: 'hit'|'miss'|'tenant-not-found',
+                   probedAt }
+
+  User           NEW. role ADMIN|USER. Owns every candidate-scoped table, and
+  Session        changes Application's unique index from (companyId,
+                 normalizedTitle) to (userId, companyId, normalizedTitle) - the
+                 one v1 invariant that roles break rather than extend.
+
+  AppSetting     NEW. Non-secret admin-editable settings only. Secrets stay in
+                 .env and are never written from the UI (2A.4).
+
+Everything else - CandidateProfile atoms, SkillsReserve, JobPosting, MatchScore,
+ResumeVariant, SourceRun - is exactly as v1 specified, plus a userId owner on
+the candidate-scoped ones.
+
+
+================================================================================
+2A. ROLES AND ACCESS - ADMIN AND USER
+================================================================================
+NEW in v2. v1 assumed a single operator who was also the only candidate, so it
+had no notion of accounts at all. The system now has two roles:
+
+  ADMIN   Operates the machine AND uses it as a candidate. Sees every
+          integration, every connector, every setting, the whole discovery
+          funnel, and the company/probe internals.
+
+  USER    Uses the application only. Uploads a resume, confirms the atom list,
+          reviews matched jobs, approves or rejects, submits. Sees none of the
+          plumbing - no ATS tokens, no connector health, no company list, no
+          other user's data.
+
+The split is by CAPABILITY, not by screen. A user is not an admin with buttons
+hidden; a user's requests for admin data are refused by the server.
+
+--------------------------------------------------------------------------------
+2A.1 THE ONE RULE THAT MATTERS
+--------------------------------------------------------------------------------
+HIDING A NAV LINK IS NOT ACCESS CONTROL.
+
+Every admin-only route carries a server-side role guard. The frontend hides
+what a user cannot use, but that is ergonomics; the guard is the security. If
+the two ever disagree, the guard wins and the UI is the bug.
+
+Corollary: role is read from the server-side session on every request. It is
+never read from a request body, a header, a query parameter, or anything else
+the client can set.
+
+--------------------------------------------------------------------------------
+2A.2 WHAT IS PER-USER AND WHAT IS SHARED
+--------------------------------------------------------------------------------
+Getting this boundary wrong is the whole risk of adding roles, so it is
+enumerated rather than left to inference.
+
+SHARED (global, admin-managed, one copy for everyone):
+  Company, CompanyProbe, JobPosting, SourceRun
+    Job postings are public facts about the world. Discovering them once and
+    scoring them per-user is the only sane shape - re-fetching the same
+    Greenhouse board once per user would multiply outbound traffic by the user
+    count for identical data, which is both wasteful and rude to the ATS.
+
+PER-USER (owned, never visible across accounts):
+  CandidateProfile      the resume, the atoms, the confirmation gate
+  ProfileAtomEmbedding  derived from those atoms
+  SkillsReserve         a claim about one person's real skills
+  MatchScore            a score is profile-x-job, meaningless without the profile
+  ResumeVariant         tailored output, contains personal history
+  Application           who applied where
+  ApplicationAnswers    v1's config/legal.yaml, now per-user (see 2A.4)
+
+--------------------------------------------------------------------------------
+2A.3 THE DUPLICATE-APPLICATION INDEX CHANGES
+--------------------------------------------------------------------------------
+v1 made the anti-re-apply guarantee structural:
+
+  Application  @@unique([companyId, normalizedTitle])
+
+With two users that index is WRONG, and wrong in a way that looks like it works:
+it would silently refuse user B's application to a role user A already applied
+to. It becomes:
+
+  Application  @@unique([userId, companyId, normalizedTitle])
+
+The guarantee is unchanged in spirit - one person never applies to the same role
+at the same company twice, still enforced by the database rather than by
+application logic that could carry a bug - but it is now scoped to the person.
+This is called out explicitly because it is the single place where adding roles
+breaks a v1 invariant instead of merely extending it.
+
+--------------------------------------------------------------------------------
+2A.4 SECRETS DO NOT MOVE INTO THE DATABASE
+--------------------------------------------------------------------------------
+"Admin sees all the integration settings" does NOT mean an admin form that
+writes API keys into Postgres.
+
+  Secrets (Anthropic key, Gemini key, Telegram token, database URL, Adzuna key)
+  stay in .env, readable only by the OS user running the process. The admin UI
+  shows each integration's NAME, whether it is CONFIGURED, and the last time it
+  was successfully used. It never shows the value and never accepts a new one.
+
+  Reason: a web form that writes credentials to the database turns one gitignored
+  file into a database column, a request body, a log line, and an HTTP response -
+  four new places a key can leak - in exchange for saving one text-editor visit
+  on a system with a handful of users. Wrong trade.
+
+Editable by the admin (non-secret operational settings, DB-backed):
+  company list and per-company tier / active flag, targets filters, cron time,
+  notification recipients, per-user enable/disable, LLM provider preference.
+
+--------------------------------------------------------------------------------
+2A.5 CONSEQUENCES FOR THE v1 SAFETY RULES
+--------------------------------------------------------------------------------
+All v1 safety rules survive; two get sharper with a second person involved.
+
+  EEO / demographic questions. Unchanged and now more important: never
+  auto-filled, never inferred, always left to "decline to self-identify". An
+  admin must never be able to answer these on a user's behalf - the field is
+  not admin-writable at all.
+
+  Work authorization, notice period, current and expected CTC. v1 kept these in
+  config/legal.yaml, filled once by hand and never guessed. Per-user now, and
+  writable ONLY by the user who owns them. An admin can see that they are
+  unfilled (it blocks the pipeline) but cannot fill them. Guessing another
+  person's visa status or salary onto a real job application is worse than a
+  blocked pipeline.
+
+  Nothing here relaxes the submit boundary. There is still no submit codepath in
+  any adapter, for any role. Admin is not a permission to auto-apply.
+
+--------------------------------------------------------------------------------
+2A.6 AUTH MECHANISM
+--------------------------------------------------------------------------------
+Deliberately boring, because this API is never publicly exposed (phase 0
+decision: local first, then reached over an SSH tunnel).
+
+  Password hashing   node:crypto scrypt, per-user random salt, timing-safe
+                     compare. Built in - no native build, no new dependency.
+  Session            opaque 256-bit random token, stored server-side in a
+                     Session row, sent as an HttpOnly SameSite=Lax cookie.
+                     Chosen over JWT because revocation must be immediate and a
+                     stateful table gives that for free at this scale.
+  Not stored         no token in localStorage - an XSS in the dashboard would
+                     otherwise hand over an account.
+  First admin        created by a CLI command, not by an open signup route.
+                     There is no public registration; the admin creates users.
+
+--------------------------------------------------------------------------------
+2A.7 COST NOTE
+--------------------------------------------------------------------------------
+Discovery cost is flat in the user count (shared postings). Scoring and
+tailoring are per-user, so LLM spend scales linearly with active users. Section
+5's numbers are per-candidate from here on.
+
+
+================================================================================
+3. REVISED PHASE ORDER
+================================================================================
+
+v1 order was: scaffold -> LLM -> profile -> discovery -> matching -> tailoring
+-> submission -> schedule.
+
+Discovery moves to FIRST after the scaffold. Three reasons:
+
+  1. It is the only stage with an external dependency that can fail without
+     warning, and the only one whose yield is still unknown. Learn that early.
+  2. It needs neither the LLM layer nor the parsed profile. Stage-1
+     deterministic filtering runs off config/targets.yaml alone.
+  3. It must START COLLECTING EARLY. Discovery running daily from week 1 is what
+     produces the empirical atsType counts that decide which apply-adapters to
+     build in phase 6 - a decision v1 correctly wanted to make from data rather
+     than guesswork.
+
+  PHASE 0    Scaffold
+  PHASE 1    Discovery + company-list builder      <- was phase 2
+  PHASE 2    LLM provider abstraction              <- was phase 0.5
+  PHASE 3    Profile ingestion                     <- was phase 1
+  PHASE 4    Matching & scoring funnel             <- was phase 3
+  PHASE 5    Resume tailoring + provenance guard   <- was phase 4
+  PHASE 6    Assisted submission                   <- was phase 5
+  PHASE 7    Schedule, track, notify               <- was phase 6
+  PHASE 8    Web UI - admin and user shells        <- NEW (see 2A)
+
+PHASE 8 IS BEING BUILT EARLY, out of order, at the operator's request. That is a
+deliberate exception with a known cost: until phases 3-6 land, the user-side
+screens have nothing real to show. It is worth doing anyway because the
+admin/user boundary from section 2A has to exist in the schema and the guards
+BEFORE per-user data starts accumulating - retrofitting ownership onto rows that
+already exist is the expensive version of this change. The read-only admin views
+(funnel, connector health, companies, postings) do have real data today, from the
+spike snapshot loaded by prisma/seed.ts.
+
+From the end of phase 1 onward, discovery runs on its cron every day while the
+later phases are being built. By phase 6 there is a month of real data saying
+which ATS platforms actually hold the jobs.
+
+
+--------------------------------------------------------------------------------
+PHASE 0 - SCAFFOLD
+--------------------------------------------------------------------------------
+Unchanged from v1. docker-compose (postgres:16 + CREATE EXTENSION vector,
+redis:7), Nest.js 11 + Prisma + BullMQ + @nestjs/schedule, Zod-validated config
+module, ecosystem.config.js, strict TS, ESLint/Prettier matching the existing
+repos.
+
+DECIDED (v1 left this open): build and run ENTIRELY LOCAL first. No server, no
+SSH tunnel until after phase 5. Nothing before then benefits from being remote,
+and a tunnel in the inner loop is friction for no gain. When it does deploy, the
+split is v1 section 9: discovery/scoring/tailoring on the server, `submit` on
+the laptop, database reached over an SSH tunnel - never exposed to the network.
+
+
+--------------------------------------------------------------------------------
+PHASE 1 - DISCOVERY + COMPANY LIST BUILDER
+--------------------------------------------------------------------------------
+The largest phase and the one that determines whether the rest is worth
+building.
+
+1a. CONNECTORS - build exactly four, in this order:
+
+      Greenhouse       boards-api.greenhouse.io/v1/boards/{token}/jobs
+                         ?content=true
+      Lever            api.lever.co/v0/postings/{site}?mode=json
+      Ashby            api.ashbyhq.com/posting-api/job-board/{board}
+                         ?includeCompensation=true
+      SmartRecruiters  api.smartrecruiters.com/v1/companies/{id}/postings
+                         ?country=in&limit=100     (paginate on offset)
+
+    All four verified returning 200 unauthenticated on 2026-09-05. Workable is
+    deferred - it responded, but no Indian board was found on it in the sweep.
+
+    v1's JobSource interface is unchanged:
+      interface JobSource {
+        readonly id: string;
+        readonly kind: 'ats' | 'aggregator';
+        fetch(since: Date): AsyncIterable<RawPosting>;
+      }
+
+    Each connector wraps parsing in Zod validation that LOGS AND SKIPS rather
+    than throwing, and writes a SourceRun row, so a connector that silently
+    starts returning zero is visible.
+
+1b. COMPANY LIST BUILDER - the priority deliverable.
+
+    `pnpm cli companies:probe <name|domain>` and a bulk
+    `pnpm cli companies:sweep <file>`.
+
+    The technique is proven in spike/sweep.mjs: normalize a company name to a
+    slug and try it against all four ATSes. ~24% of blind guesses hit. Record
+    every attempt in CompanyProbe so nothing is re-probed.
+
+    MUST detect tenant-absence by BODY CONTENT, not status code (see change 3).
+
+    Also fingerprint from a company's own careers page: follow the redirect
+    chain, since acme.com/careers -> boards.greenhouse.io/acme reveals both the
+    vendor and the token directly. More reliable than guessing when a domain is
+    known.
+
+    SEED TARGET: 400-500 companies across four deliberate categories.
+      1. US/global companies with Indian engineering offices     (T1, ~150)
+         Highest yield and best pay. Databricks/Stripe/Netskope/Druva-shaped.
+      2. Well-funded Indian product startups                    (T2, ~150)
+         Confirmed present: Paytm, Meesho, Groww, Navi, Zeta, Epifi, Slice,
+         InMobi, Glance, Postman, Atlan, Mindtickle, Sarvam, HackerRank.
+      3. Indian mid-market product companies                     (T3, ~100)
+         The actual Rs 12-18 LPA band.
+      4. Staffing / services                                     (T4, ~50)
+         Kept, ranked last. Robert Half, Insight Global, Randstad, Michael
+         Page, Hays, Turing.
+
+    PRUNING: a board with consecutiveEmptyRuns above a threshold drops to a
+    weekly fetch instead of daily. The list should grow without the daily run
+    getting slower in proportion.
+
+1c. NORMALIZER - as v1, with one addition.
+
+    Strips HTML; parses stated salary ("Rs 12,00,000", "12-18 LPA", "$130k");
+    infers seniority/YOE from title and text; dedupes on contentHash and
+    (source, sourceJobId); cross-source fuzzy dedupe on
+    (company, normalizedTitle, location) via pg_trgm.
+
+    NEW - REMOTE ELIGIBILITY. The spike found 509 postings tagged remote but not
+    India. "Remote - India" is applicable; "Remote - US" is not. The normalizer
+    must resolve remoteType against eligibility rather than treating any
+    "remote" string as a match, or the pool fills with jobs that cannot be
+    taken.
+
+1d. POLITENESS - as v1. Sequential per source with jittered delay, honest
+    User-Agent carrying a contact address, ETag / If-Modified-Since where
+    supported, SourceRun logging. The spike ran 600 requests at concurrency 8
+    with 60-180ms jitter and drew zero errors or blocks; that is a reasonable
+    ceiling to stay under.
+
+    ENFORCEMENT GAP TO CLOSE IN THIS PHASE. DISCOVERY_CONTACT_EMAIL is
+    .optional() in config/env.schema.ts, and correctly so - phase 0 makes no
+    outbound request, and a key that is not needed yet should not stop the
+    process booting. But that means nothing currently enforces the rule above.
+    The check belongs in the discovery HTTP client, not in the env schema: it
+    must REFUSE to issue a request when no contact address is configured, rather
+    than quietly sending a UA without one. Same shape as the rest of this plan -
+    fail closed at the point of use, and let the boot stay permissive.
+
+    Until then the admin Integrations screen flags it as required-and-missing,
+    which is a warning, not a guarantee.
+
+EXIT CRITERION: discovery on a daily cron, 400+ companies seeded, and a real
+measured number for relevant new postings per day. That number replaces the
+invented 800 and is what phase 4's thresholds get tuned against.
+
+
+--------------------------------------------------------------------------------
+PHASE 2 - LLM PROVIDER ABSTRACTION
+--------------------------------------------------------------------------------
+Unchanged from v1 phase 0.5. One LlmProvider interface, three task definitions
+(parse resume -> atoms, score a JD, tailor a resume), each defined once as a Zod
+schema plus prompt.
+
+  ClaudeProvider  @anthropic-ai/sdk. Structured output via output_config.
+                  Stable prefix (atoms + rubric) marked
+                  cache_control: { type: 'ephemeral' }. completeMany uses the
+                  Batch API. claude-haiku-4-5 to score, claude-opus-5 to tailor.
+  GeminiProvider  @google/genai. responseMimeType + responseSchema.
+                  completeMany is a p-limit concurrency queue with exponential
+                  backoff on 429, NOT a batch call.
+
+Selection: LLM_PROVIDER env wins; else gemini when NODE_ENV=production, claude
+otherwise. Resolved once at boot and logged.
+
+All four v1 anti-drift defenses are retained: Zod-parse every result at the
+boundary, record llmProvider+model on every MatchScore and Application row, the
+cross-provider golden-set test, and a provenance guard that runs identically on
+both.
+
+Build Claude first. Gemini is not needed until deployment.
+
+
+--------------------------------------------------------------------------------
+PHASE 3 - PROFILE INGESTION
+--------------------------------------------------------------------------------
+Unchanged from v1 phase 1.
+
+  `pnpm cli profile:ingest "Documents/astha pers/Astha Niharika - Resume.pdf"`
+
+  1. Extract text, pass the PDF to the LLM with structured output to produce the
+     atom list: { id, kind, text, tech[], metrics[], employer, dateRange }.
+  2. HUMAN CONFIRMATION GATE - print the atoms, require --confirm. Everything
+     downstream inherits these facts, so a bad parse must not pass silently.
+  3. Embed each atom plus a whole-profile vector via local bge-small-en-v1.5
+     through @huggingface/transformers (384-dim, free).
+  4. config/targets.yaml: title include/exclude, seniority, locations
+     (Bhubaneswar / Bengaluru / Hyderabad / Pune / remote-India),
+     maxApplicationsPerDay: 15, must-have and dealbreaker keywords.
+
+  CHANGED: salaryFloorLPA stays in the config as a soft preference, but per
+  change 2 it is no longer a meaningful gate for Indian postings. Tier ranking
+  does that work.
+
+
+--------------------------------------------------------------------------------
+PHASE 4 - MATCHING & SCORING
+--------------------------------------------------------------------------------
+Same cheap-to-expensive funnel as v1 phase 3. The COUNTS are deleted, because
+they were derived from the wrong volume assumption. Every stage logs its
+survivor count and thresholds are tuned against phase 1's measured data.
+
+  STAGE 1  DETERMINISTIC (free)
+           title include/exclude, dealbreakers, YOE window, location and remote
+           ELIGIBILITY (not just the remote flag), postedAt freshness,
+           already-applied check.
+
+  STAGE 2  VECTOR (free, local)
+           cosine distance between posting and profile embeddings, HNSW index.
+
+  STAGE 3  LLM SCORE
+           Haiku 4.5 batched / Gemini Flash. Structured output:
+             { score, verdict, reasons[], missingSkills[],
+               estimatedSalaryLPA, salaryConfidence }
+           Profile and rubric in a cached prefix; only the JD varies.
+
+  STAGE 4  PAY GATE - REWRITTEN per change 2.
+           Rank primarily by Company.tier. A STATED salary below floor still
+           rejects. An LLM estimate is a tie-breaker only, never a rejection on
+           its own, because with 0.3% ground truth it cannot be calibrated.
+           Unknown pay passes through - which for Indian postings is the normal
+           case, not the exception.
+
+  Because real daily volume is ~3-6 rather than ~60, stage 3 may initially score
+  everything that survives stage 1 and skip stage 2 entirely. Keep the vector
+  stage built - it is what allows the company list to grow 10x without the LLM
+  bill following - but do not let a funnel designed for 800/day throw away
+  candidates when there are only 20.
+
+
+--------------------------------------------------------------------------------
+PHASE 5 - RESUME TAILORING + PROVENANCE GUARD
+--------------------------------------------------------------------------------
+Unchanged from v1 phase 4, which the spike did not touch and which remains the
+highest-value part of the system.
+
+The LLM receives the atom list plus the JD and returns ONLY:
+  { selectedAtomIds[], rewrites: [{atomId, text}], headline, coverLetter }
+It cannot emit a bullet without citing a source atom id.
+
+provenance.guard.ts validates, and FAILS CLOSED:
+  - every atomId exists in the profile
+  - every number in a rewritten bullet appears in that atom's metrics
+      (blocks 65% -> 85%)
+  - every tech token is in the union of profile tech tags + SkillsReserve
+      (blocks a silently added "Kafka")
+  - employer names and date ranges byte-identical to source
+
+Any violation -> log, discard the variant, fall back to the base resume. Guard
+failure RATE is surfaced in the digest, since a rising rate means prompt drift.
+
+Render with `docx` into the existing single-column ATS-safe layout, PDF via
+headless LibreOffice. Astha_Niharika_<Company>_<Role>.pdf
+
+Its unit tests are the first tests written (v1 verification item 1).
+
+
+--------------------------------------------------------------------------------
+PHASE 6 - ASSISTED SUBMISSION
+--------------------------------------------------------------------------------
+Per v1 constraint 0, this phase prepares and pre-fills. The human submits.
+Adapters have NO submit codepath at all - structural, not a flag.
+
+  interface AtsAdapter {
+    readonly atsType: AtsType;
+    canHandle(url: string): boolean;
+    /** Fills every field it can. NEVER clicks submit. */
+    prefill(page: Page, app: PreparedApplication): Promise<PrefillResult>;
+  }
+
+BUILD ORDER - now decided by phase 1's measured atsType counts, exactly as v1
+section 8 wanted. Expected from the spike, subject to that data:
+
+  TIER 1  Lever, Greenhouse. Stable field identity.
+          Lever: flat names `name`, `email`, `phone`, `resume`,
+                 `urls[LinkedIn]`; EEO under `eeo[...]`; custom questions under
+                 `surveysResponses[{surveyUuid}][responses][fieldN]`
+          Greenhouse: stable ids `first_name`, `last_name`, `email`, `phone`,
+                 `resume`; custom questions `question_{id}`. It is a React SPA
+                 at job-boards.greenhouse.io/{board}/jobs/{id} - drive the DOM,
+                 do NOT construct a POST.
+
+  TIER 2  Ashby, SmartRecruiters. Schema-driven, resolve fields at runtime.
+          SmartRecruiters exposes .../postings/{uuid}/apply-configuration
+          returning the question schema.
+
+  TIER 3  NEW - GENERIC FORM FILLER. For custom in-house career forms, where a
+          per-company adapter is never worth writing. Reads whatever fields are
+          on the page, asks the LLM which profile value belongs in each, fills
+          what it can, and reports a confidence per field. Less reliable than a
+          real adapter, but a form arriving 70% filled is still most of the win
+          given a human reviews before submitting. Turns the long tail from
+          manual-link into mostly-done.
+
+  DROPPED Workday. v1 already leaned this way; confirmed. Per-tenant accounts
+          and a stateful multi-step flow for disproportionate effort. Manual
+          links only.
+
+SCREENING QUESTIONS - unchanged from v1. Three classes are NEVER auto-filled:
+  - EEO / demographic -> left blank, default "decline to self-identify"
+  - visa / work authorization / expected CTC / notice period -> ONLY from an
+    explicit config/legal.yaml, never guessed
+  - free text over N chars, or low confidence -> flagged for review
+
+SAFETY RAILS, all default-on and all from v1: no submit codepath;
+maxApplicationsPerDay cap plus per-company cooldown; the UNIQUE
+(companyId, normalizedTitle) index so a duplicate fails at the database rather
+than in logic; full-page screenshot and form state retained for audit; result
+recorded ONLY on detected confirmation, never optimistically.
+
+THE HANDOFF: `pnpm cli submit` opens a real non-headless Chromium with a
+persistent profile and, one application at a time, navigates, fills, attaches
+the tailored PDF, and pauses. The human clears the CAPTCHA and clicks submit.
+No CAPTCHA solving, no bypass, no anti-detection tooling - a challenge is a
+stop-and-ask, not an obstacle to route around.
+
+
+--------------------------------------------------------------------------------
+PHASE 7 - SCHEDULE, TRACK, NOTIFY
+--------------------------------------------------------------------------------
+Unchanged from v1 phase 6. @nestjs/schedule cron at 09:00 IST enqueues the
+pipeline; PM2 keeps the worker alive. Evening Telegram digest: applications
+prepared, awaiting review, guard failure rate, dead connectors, token spend.
+Reject from the phone BEFORE the desktop submit session, so the browser queue
+holds only wanted applications. Optional Next.js dashboard later.
+
+ADDED to the digest, both consequences of change 1: new-companies-discovered
+count, and per-board yield so an unproductive board can be pruned.
+
+
+================================================================================
+4. WHAT THE SPIKE DID NOT MEASURE
+================================================================================
+Open, and honestly open - not quietly assumed:
+
+- AGGREGATORS entirely unmeasured. Adzuna (has India coverage AND salary data,
+  needs a free key), Jobicy, Remotive, The Muse, Arbeitnow all responded 200
+  during the spike but their India yield is unknown. Worth one probe before
+  committing to any of them. Adzuna is the interesting one precisely because it
+  carries the salary data the ATS side does not.
+
+- WHETHER 400-500 COMPANIES ACTUALLY YIELDS 80-100 PRODUCTIVE BOARDS. That is
+  extrapolated from a 24% hit rate on 140 guesses. It could be materially worse
+  once the easy well-known names are exhausted. This is the main quantitative
+  risk remaining, and phase 1 either confirms it or forces a rethink of the
+  daily-volume target.
+
+- SEASONALITY. One snapshot on one day.
+
+- Whether the four T1-T4 pay bands are anywhere near right. They are estimates.
+
+STILL OPEN FROM V1, UNCHANGED
+- Work authorization, notice period, current and expected CTC, relocation
+  willingness. Filled once, never guessed. MOVED in v2 from a global
+  config/legal.yaml to per-user ApplicationAnswers, writable only by the user
+  who owns them - see 2A.5.
+- Telegram bot token, or fall back to an email digest.
+- Free Google AI Studio key for the Gemini provider (not needed until deploy).
+- Where the server lives. Deferred to after phase 5 by the phase 0 decision.
+
+
+================================================================================
+5. COST
+================================================================================
+v1 section 5 stands and gets CHEAPER, since it was priced for ~60 LLM scoring
+calls a day and reality is closer to 5-20.
+
+  Server, Gemini 2.5 Flash free tier    Rs 0/month. This is what runs daily.
+  Local, Claude, development only       ~$0.54/day at v1's assumed volume;
+                                        materially less at real volume.
+  Whole build                           ~Rs 100-200 in Claude calls.
+
+Everything else - Postgres, Redis, Playwright, local embeddings, all the job
+APIs - is free and self-hosted.
+
+
+================================================================================
+6. FIRST THREE STEPS
+================================================================================
+  1. Phase 0 scaffold. Local only.
+  2. Greenhouse + Lever connectors and companies:probe, seeded with the 34
+     boards the spike already confirmed. Get real postings into the database.
+  3. Grow the list toward 400-500 and let discovery run daily while phases 2-5
+     are built, so phase 6's adapter priority comes from data.
+
+================================================================================
+END OF PLAN v2
+================================================================================

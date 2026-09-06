@@ -1,0 +1,50 @@
+{
+  "name": "job-autopilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Daily job discovery, resume tailoring and assisted apply",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "setup": "node scripts/stack.mjs --seed",
+    "dev": "node scripts/stack.mjs && turbo run dev dev:worker",
+    "dev:api": "turbo run dev --filter=@job-autopilot/backend",
+    "dev:web": "turbo run dev --filter=@job-autopilot/frontend",
+    "dev:worker": "turbo run dev:worker",
+    "stack": "node scripts/stack.mjs",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "test": "turbo run test",
+    "check": "turbo run typecheck lint test",
+    "deploy": "node scripts/stack.mjs --no-db && turbo run build && pm2 startOrReload ecosystem.config.js",
+    "cli": "npm run cli -w @job-autopilot/backend --",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f",
+    "db:generate": "npm run prisma:generate -w @job-autopilot/backend",
+    "db:migrate": "npm run prisma:migrate -w @job-autopilot/backend",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy -w @job-autopilot/backend",
+    "db:reset": "npm run prisma:reset -w @job-autopilot/backend",
+    "db:studio": "npm run prisma:studio -w @job-autopilot/backend",
+    "db:seed": "npm run prisma:seed -w @job-autopilot/backend"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "npm@11.19.0",
+  "devDependencies": {
+    "pm2": "^7.0.4",
+    "turbo": "^2.10.12"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "sharp@0.34.5": true,
+    "msgpackr-extract": false,
+    "unrs-resolver@1.12.2": true
+  }
+}

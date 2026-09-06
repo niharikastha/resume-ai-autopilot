@@ -1,0 +1,29 @@
+node_modules/
+dist/
+coverage/
+.env
+# Per-machine overrides. Note frontend/.env IS committed - it holds only the
+# public NEXT_PUBLIC_API_URL, and a fresh clone needs it.
+*.local
+!frontend/.env
+*.log
+
+# Build output and local task caches.
+.next/
+.turbo/
+next-env.d.ts
+# tsc --noEmit still writes an incremental cache. It is machine-local, it churns
+# on every typecheck, and a stale one committed by someone else causes confusing
+# "already built" skips.
+*.tsbuildinfo
+
+# Generated artifacts
+/artifacts/
+/backend/prisma/generated/
+
+# Playwright's persistent browser profile for the submit session (phase 6).
+# Contains live login cookies for job sites - must never be committed.
+/.browser-profile/
+
+# Spike scripts kept for reference; their output data is disposable.
+/spike/*.json

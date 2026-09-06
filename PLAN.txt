@@ -1,0 +1,640 @@
+================================================================================
+AUTOPILOT - Daily Job Discovery, Resume Tailoring & Assisted Apply
+Implementation Plan
+================================================================================
+Author: planned with Claude Code
+Date:   2026-09-04
+Status: Approved, not yet implemented
+
+
+================================================================================
+1. CONTEXT
+================================================================================
+
+Goal: stop hand-applying to jobs. Upload a resume once, configure targets once,
+and then every day the system finds openings matching the candidate's skills and
+pay floor, rewrites the resume against each job description, and prepares the
+application for submission.
+
+CANDIDATE PROFILE
+  Source: Documents/astha pers/Astha Niharika - Resume.pdf
+  - AI Backend Engineer at Hyscaler since Jan 2024 (~2 yr 8 mo)
+  - Node.js, Nest.js, Express, GraphQL
+  - LLM / RAG / pgvector / embeddings
+  - MongoDB, PostgreSQL
+  - React, Next.js, Angular, React Native
+  - B.Tech IT, VSSUT, 2024. Based in Bhubaneswar.
+  - Target band: Rs 12-18 LPA
+
+CONFIRMED DECISIONS
+  - Stack: TypeScript + Postgres/pgvector. Matches the candidate's day job, so
+    it is maintainable, and it doubles as a portfolio piece demonstrating the
+    exact RAG/queue skills being applied with.
+  - Submit: assisted autofill. The system prepares and pre-fills every
+    application; the human clears the CAPTCHA and clicks submit. (See
+    constraint 0 - unattended submission is not achievable.)
+  - Tailoring: reword and reorder existing facts only. Never invent a skill,
+    employer, metric, or date.
+  - Salary floor: Rs 12-18 LPA, applied as a RANKING signal with a soft floor,
+    because most postings omit compensation entirely.
+  - LLM provider is environment-selected: Claude when running locally, Gemini
+    when running on the server. Both sit behind one interface, so the pipeline
+    is provider-agnostic and the hosted daily run costs Rs 0.
+
+
+FOUR CONSTRAINTS THAT SHAPE THE DESIGN
+--------------------------------------------------------------------------------
+
+CONSTRAINT 0 - Fully unattended submission is NOT achievable.
+  Verified live during planning:
+  - ZERO of 11 ATS platforms expose an applicant-side submission API. Every
+    documented POST endpoint requires an employer-side key. Confirmed
+    employer-gated: Greenhouse, Ashby, SmartRecruiters, Workable, Teamtailor.
+  - Every major public application form is CAPTCHA-gated:
+      Lever     -> hCaptcha (h-captcha-response)
+      Greenhouse-> invisible reCAPTCHA
+      Ashby     -> reCAPTCHA
+      Workable  -> reCAPTCHA AND Cloudflare Turnstile
+  Defeating those would breach the sites' terms, so the system does everything
+  up to the submit button and hands over there.
+
+  THE MODEL IS ASSISTED AUTOFILL, NOT AUTO-APPLY.
+  Human effort drops from ~15 min per application to ~20 seconds, which is
+  where nearly all of the value was anyway.
+
+CONSTRAINT 1 - Discovery, by contrast, is unambiguously clean.
+  All 11 platforms serve job data unauthenticated, and Ashby's docs explicitly
+  permit it. That half is fully automatable and is where the engineering
+  should concentrate.
+
+CONSTRAINT 2 - Anthropic has no embeddings endpoint.
+  pgvector needs a separate vector source. Plan uses local bge-small-en-v1.5
+  via @huggingface/transformers (384-dim, free, ~5ms/doc) so there is no
+  second paid API and no per-job embedding cost. Voyage AI is a drop-in
+  upgrade behind the same interface if quality requires it.
+
+CONSTRAINT 3 - Salary is usually absent from postings.
+  A hard ">= 12 LPA" filter would silently discard most valid matches.
+  Three tiers instead:
+      stated salary  ->  LLM-estimated band (flagged 'estimated')  ->  unknown
+  Unknown is KEPT, ranked lower. Only a CONFIDENT estimate below floor rejects.
+
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+Single Nest.js app + minimal Next.js review dashboard, PM2-managed. Same shape
+as Projects/merqube-hyally-platform.
+
+  job-autopilot/
+  |-- docker-compose.yml          # postgres 16 + pgvector, redis
+  |-- ecosystem.config.js         # PM2: api + worker
+  |-- backend/                    # Nest.js 11
+  |   |-- prisma/schema.prisma
+  |   `-- src/
+  |       |-- llm/                # provider iface: claude (local) | gemini (server)
+  |       |-- profile/            # resume -> canonical facts + embeddings
+  |       |-- discovery/          # source connectors -> normalized postings
+  |       |   `-- connectors/     # greenhouse, lever, ashby, workable, adzuna...
+  |       |-- matching/           # deterministic filter -> pgvector -> LLM score
+  |       |-- tailoring/          # JD-targeted resume + letter + provenance guard
+  |       |-- apply/              # Playwright ATS adapters + review queue
+  |       |   `-- adapters/
+  |       |-- scheduler/          # @nestjs/schedule cron -> BullMQ pipeline
+  |       `-- notify/             # Telegram digest
+  `-- frontend/                   # Next.js review dashboard (phase 6, optional)
+
+Pipeline runs as chained BullMQ jobs so any stage can be retried independently:
+
+  discover -> normalize -> filter -> embed -> score -> tailor -> prefill -> record
+
+
+================================================================================
+3. DATA MODEL (Prisma)
+================================================================================
+
+CandidateProfile
+  Canonical truth. atoms Json = array of:
+    { id, kind: 'bullet'|'skill'|'role'|'edu', text, tech[], metrics[],
+      employer, dateRange }
+  THIS ATOM LIST IS THE ONLY THING TAILORING MAY DRAW FROM.
+  embedding vector(384)
+
+SkillsReserve
+  Optional, user-maintained: skills the candidate has but did not list.
+  Empty by default (facts-only tailoring was chosen); exists so that enabling
+  it later is a config flip, not a rewrite.
+
+Company
+  name, atsType, atsToken, tier (for salary estimation), isAgency
+
+JobPosting
+  source, sourceJobId (unique with source), title, descriptionRaw,
+  descriptionText, location, remoteType, seniority, yoeMin/Max,
+  salaryMin/Max/Currency/Period,
+  salarySource ('stated'|'estimated'|'unknown'), salaryConfidence,
+  applyUrl, atsType, postedAt, contentHash, embedding vector(384)
+
+MatchScore
+  jobId, score 0-100, verdict, reasons[], missingSkills[],
+  llmProvider, model, scoredAt
+
+Application
+  jobId, status ('queued'|'awaiting_review'|'approved'|'rejected'|
+                'prepared'|'submitted'|'failed'|'skipped'),
+  resumeVariantId, coverLetter, screeningAnswers Json, submittedAt,
+  confirmationText, screenshotPath, failureReason, llmProvider
+  *** UNIQUE INDEX ON (companyId, normalizedTitle) ***
+      the structural guard against re-applying
+
+ResumeVariant
+  profileId, jobId, atomSelection Json, docxPath, pdfPath,
+  provenanceReport Json
+
+SourceRun
+  Per-connector run log: counts, duration, errors.
+  Makes a silently-dead connector visible.
+
+
+================================================================================
+4. IMPLEMENTATION PHASES
+================================================================================
+
+--------------------------------------------------------------------------------
+PHASE 0 - SCAFFOLD
+--------------------------------------------------------------------------------
+docker-compose.yml (postgres:16 + CREATE EXTENSION vector, redis:7),
+Nest.js 11 + Prisma + BullMQ + @nestjs/schedule, Zod-validated config module,
+ecosystem.config.js. Strict TS, ESLint/Prettier matching existing repos.
+
+
+--------------------------------------------------------------------------------
+PHASE 0.5 - LLM PROVIDER ABSTRACTION
+--------------------------------------------------------------------------------
+Three LLM tasks exist in the system: parse resume -> atoms, score a JD, tailor
+a resume. Each is defined ONCE as a Zod schema + prompt, and each provider
+adapts it to its own structured-output mechanism.
+
+  // llm/llm-provider.interface.ts
+  interface LlmProvider {
+    readonly name: 'claude' | 'gemini';
+    readonly supportsBatch: boolean;
+    complete<T>(req: LlmRequest<T>): Promise<LlmResult<T>>;    // schema-validated
+    completeMany<T>(reqs: LlmRequest<T>[]): Promise<LlmResult<T>[]>;
+  }
+
+ClaudeProvider - @anthropic-ai/sdk
+  - Structured output via output_config: { format: {...} }
+  - Stable prefix (profile atoms + rubric) marked
+    cache_control: { type: 'ephemeral' }
+  - completeMany uses the Batch API for the 50% discount
+  - Models: claude-haiku-4-5 for scoring, claude-opus-5 for tailoring
+
+GeminiProvider - @google/genai
+  - Structured output via responseMimeType: 'application/json' + responseSchema
+  - Free tier is RPM-limited, so completeMany is NOT a batch call. It is a
+    concurrency-limited queue (p-limit) with exponential backoff on 429.
+    60 scoring calls at ~10 RPM is a few minutes of wall-clock, which is
+    irrelevant for a 9 AM cron job.
+
+SELECTION
+  LLM_PROVIDER env var wins if set. Otherwise:
+    gemini when NODE_ENV=production, claude otherwise.
+  Resolved once at boot and LOGGED, so it is never ambiguous which provider
+  produced a given result.
+
+GUARDING AGAINST PROVIDER DRIFT
+  The real risk of this design is the two environments quietly behaving
+  differently. Four defenses:
+  1. Every LlmResult is Zod-parsed before returning. A provider returning
+     malformed or off-schema JSON fails loudly at the boundary, not three
+     modules downstream.
+  2. Application and MatchScore rows record llmProvider + model, so a quality
+     regression can be traced to a provider.
+  3. A golden-set test (section 6.3b) runs the same fixtures through both and
+     asserts they agree within tolerance.
+  4. The provenance guard is provider-independent and runs identically on both.
+     A weaker model producing sloppier rewrites gets caught by the same
+     validator, not waved through.
+
+
+--------------------------------------------------------------------------------
+PHASE 1 - PROFILE INGESTION
+--------------------------------------------------------------------------------
+profile/ - `pnpm cli profile:ingest <resume.pdf>`
+
+  1. Extract text (pdf-parse), pass the PDF to the LLM with structured outputs
+     to produce the atom list.
+  2. HUMAN CONFIRMATION GATE: print the extracted atoms and require --confirm.
+     Everything downstream inherits these facts, so a bad parse must not pass
+     silently.
+  3. Embed each atom + a whole-profile vector; store.
+  4. config/targets.yaml:
+       - titles (include / exclude)
+       - seniority
+       - locations (Bhubaneswar / Bengaluru / Hyderabad / Pune / remote-India)
+       - salaryFloorLPA: 12
+       - maxApplicationsPerDay: 15
+       - must-have / dealbreaker keywords
+
+
+--------------------------------------------------------------------------------
+PHASE 2 - DISCOVERY CONNECTORS
+--------------------------------------------------------------------------------
+
+VERIFIED SOURCE ENDPOINTS
+All confirmed returning HTTP 200 unauthenticated during planning.
+
+  SOURCE          ENDPOINT                                          AUTH  SALARY
+  --------------  ------------------------------------------------  ----  ------
+  Greenhouse      boards-api.greenhouse.io/v1/boards/{token}/jobs   none  rarely
+                    ?content=true
+  Lever           api.lever.co/v0/postings/{site}?mode=json         none  YES *
+  Ashby           api.ashbyhq.com/posting-api/job-board/{board}     none  YES *
+                    ?includeCompensation=true
+  Workable        apply.workable.com/api/v1/widget/accounts/{sub}   none  no
+                    ?details=true
+  SmartRecruiters api.smartrecruiters.com/v1/companies/{id}/        none  some
+                    postings
+  Recruitee       {company}.recruitee.com/api/offers/               none  no
+  Personio        {company}.jobs.personio.de/search.json            none  no
+  BambooHR        {company}.bamboohr.com/careers/list               none  no
+  Rippling        api.rippling.com/platform/api/ats/v1/board/       none  no
+                    {token}/jobs
+  Workday         POST {tenant}.wd{N}.myworkdayjobs.com/wday/cxs/   none  no
+                    {tenant}/{site}/jobs
+  Adzuna          api.adzuna.com/v1/api/jobs/in/search/{page}       key   YES
+  Jobicy          jobicy.com/api/v2/remote-jobs                     none  YES
+  Remotive        remotive.com/api/remote-jobs                      none  text
+  The Muse        www.themuse.com/api/public/jobs?page=N            opt   no
+  LinkedIn        -- EXCLUDED, see section 5 --
+  Indeed          -- EXCLUDED, see section 5 --
+
+  * Lever returns salaryRange {min,max,currency,interval}
+  * Ashby returns structured compensation with includeCompensation=true
+
+BEST SALARY COVERAGE COMES FROM THE ATS SIDE, NOT THE AGGREGATORS.
+Lever's salaryRange and Ashby's includeCompensation are structured and
+reliable. That materially improves the Rs 12 LPA floor, so weight those two
+connectors first.
+
+RATE LIMITS TO RESPECT
+  Remotive   2 req/min, <=4 calls/day. ToS requires crediting + linking back.
+  Arbeitnow  50 (from live x-ratelimit-limit header)
+  Jobicy     <=1 call/hour
+  The Muse   500/hr unkeyed, 3600/hr with free key
+  Adzuna and USAJOBS numeric limits are UNDOCUMENTED - treat conservatively.
+
+UNDOCUMENTED ENDPOINTS NEEDING DEFENSIVE PARSING
+  Workable widget routes, Personio search.json, BambooHR careers/list, and
+  Workday CxS all work today but carry NO stability guarantee. Each connector
+  wraps parsing in schema validation that logs and skips rather than throwing,
+  and SourceRun surfaces a connector that silently starts returning zero.
+
+CONNECTOR INTERFACE
+  interface JobSource {
+    readonly id: string;
+    readonly kind: 'ats' | 'aggregator';
+    fetch(since: Date): AsyncIterable<RawPosting>;
+  }
+
+ATS connectors iterate config/companies.yaml:
+  { name, atsType, atsToken, tier, isAgency }
+Aggregator connectors take query params.
+
+NORMALIZER maps RawPosting -> JobPosting:
+  - strips HTML
+  - parses stated salary (handles "Rs 12,00,000", "12-18 LPA", "$120k")
+  - infers seniority / YOE from title + text
+  - dedupes on contentHash + (source, sourceJobId)
+  - cross-source dedupe on fuzzy (company, normalizedTitle, location)
+    via pg_trgm
+
+SEED companies.yaml with Indian product companies, funded AI startups, and
+staffing agencies (Robert Half, Insight Global, Randstad, Michael Page, Hays).
+Include `pnpm cli companies:probe <domain>` to detect a company's ATS + token
+from its careers page so the list grows without manual work.
+
+PER-SOURCE POLITENESS: sequential fetch with jittered delay, honest User-Agent
+with contact email, SourceRun logging, ETag / If-Modified-Since where
+supported.
+
+
+--------------------------------------------------------------------------------
+PHASE 3 - MATCHING & SCORING
+--------------------------------------------------------------------------------
+Cheap-to-expensive funnel. Each stage's survivor count is logged so thresholds
+are tunable against real data.
+
+  STAGE 1 - DETERMINISTIC (free)                        ~800 -> ~150
+    title include/exclude, dealbreakers, YOE window, location/remote,
+    postedAt freshness, already-applied check
+
+  STAGE 2 - VECTOR (free, local)                        ~150 -> ~60
+    cosine distance between posting and profile embedding, HNSW index
+
+  STAGE 3 - LLM SCORE                                    ~60 -> ~12
+    Haiku 4.5 via Batch API (50% off) / Gemini Flash.
+    Structured output:
+      { score, verdict, reasons[], missingSkills[],
+        estimatedSalaryLPA, salaryConfidence }
+    Profile + rubric go in a cached prefix; only the JD varies.
+
+  STAGE 4 - SALARY GATE
+    Reject ONLY when salarySource='stated' and below floor, OR 'estimated'
+    with high confidence and clearly below. Unknown passes through, ranked
+    lower.
+
+
+--------------------------------------------------------------------------------
+PHASE 4 - RESUME TAILORING (with a real integrity guard)
+--------------------------------------------------------------------------------
+The instruction "don't fabricate" is not enough on its own, so tailoring is
+STRUCTURALLY constrained.
+
+The LLM receives the atom list + JD and returns ONLY:
+  { selectedAtomIds[], rewrites: [{atomId, text}], headline, coverLetter }
+via structured outputs. It CANNOT emit a bullet without citing a source atom
+id.
+
+provenance.guard.ts then validates. THIS IS THE LOAD-BEARING PART:
+  - every atomId exists in the profile
+  - every number in a rewritten bullet appears in that atom's metrics
+      (blocks "65%" -> "85%")
+  - every tech token in output is in the union of profile tech tags +
+    SkillsReserve
+      (blocks a silently-added "Kafka")
+  - employer names and date ranges are byte-identical to source
+
+Any violation -> log it, discard the variant, fall back to the base resume.
+Guard failures are surfaced in the digest, since a rising rate means the
+prompt is drifting.
+
+RENDER with the `docx` package (already used in merqube-hyally-platform) into
+the existing single-column ATS-safe layout -> PDF via headless LibreOffice.
+Filename: Astha_Niharika_<Company>_<Role>.pdf
+
+
+--------------------------------------------------------------------------------
+PHASE 5 - ASSISTED SUBMISSION
+--------------------------------------------------------------------------------
+Because of constraint 0, this phase prepares and pre-fills; the human submits.
+Field naming is standardized PER PLATFORM, not per company, so a few adapters
+cover thousands of employers.
+
+  interface AtsAdapter {
+    readonly atsType: AtsType;
+    canHandle(url: string): boolean;
+    /** Fills every field it can. NEVER clicks submit. */
+    prefill(page: Page, app: PreparedApplication): Promise<PrefillResult>;
+  }
+
+ADAPTER DIFFICULTY TIERS - build in this order:
+
+  TIER 1 (START HERE): Lever, Greenhouse
+    Stable field identity.
+    Lever: flat names `name`, `email`, `phone`, `resume`, `urls[LinkedIn]`;
+           EEO under `eeo[...]`; custom questions under
+           `surveysResponses[{surveyUuid}][responses][fieldN]`
+    Greenhouse: stable element ids `first_name`, `last_name`, `email`,
+           `phone`, `resume`; custom questions `question_{id}`.
+           NOTE: Greenhouse is now a React SPA at
+           job-boards.greenhouse.io/{board}/jobs/{id} - drive the DOM, do NOT
+           construct a POST.
+
+  TIER 2: Ashby, Workable, SmartRecruiters
+    Uniform but schema-driven. Resolve fields at runtime from JSON.
+    SmartRecruiters exposes .../postings/{uuid}/apply-configuration returning
+    the question schema.
+
+  TIER 3: Recruitee, Personio, BambooHR, Rippling
+    Standardized per vendor, thinner docs.
+
+  TIER 4: Workday
+    Requires per-tenant account creation and a stateful multi-step flow;
+    POST .../apply returns 405. Disproportionate effort - defer indefinitely,
+    or treat Workday jobs as manual-link-only.
+
+THE SUBMIT HANDOFF
+  The daily run ends with a queue of prepared applications.
+  `pnpm cli submit` opens a real (non-headless) Chromium with a persistent
+  profile and, one application at a time: navigates, fills, attaches the
+  tailored PDF, pauses. The human reviews, clears the CAPTCHA, clicks submit.
+  The adapter detects the confirmation and records the result.
+  ~20 sec per application. 12 applications ~= 4 minutes/day.
+
+  NO attempt is made to solve, bypass, or suppress CAPTCHAs, and no
+  anti-detection tooling. A challenge is a stop-and-ask, not an obstacle to
+  route around.
+
+SCREENING QUESTIONS
+  The LLM drafts answers from the profile, but three classes are NEVER
+  auto-filled:
+  - EEO / demographic (gender, race, disability, veteran)
+      -> left blank, defaulting to "decline to self-identify". Never inferred.
+  - Visa / work authorization / expected CTC / notice period
+      -> filled ONLY from an explicit config/legal.yaml. Never guessed.
+  - Free-text over N chars, or low confidence
+      -> flagged in the review UI as needing attention.
+
+SAFETY RAILS (all default-on)
+  - Adapters have no submit codepath at all. The guarantee is STRUCTURAL,
+    not a flag.
+  - maxApplicationsPerDay cap + per-company cooldown.
+  - Unique (companyId, normalizedTitle) index - duplicate applications fail
+    at the DB, not just in logic.
+  - Full-page screenshot + saved form state retained for audit.
+  - Result recorded only on DETECTED confirmation (URL change / success text).
+    Never optimistically marked 'submitted'.
+
+REVIEW SURFACE
+  Telegram digest listing each prepared application with score, reasoning, and
+  the tailored resume attached. Reject from phone BEFORE the desktop submit
+  session, so the browser queue only contains wanted applications.
+
+
+--------------------------------------------------------------------------------
+PHASE 6 - SCHEDULE, TRACK, NOTIFY
+--------------------------------------------------------------------------------
+@nestjs/schedule cron (daily 09:00 IST) enqueues the pipeline; PM2 keeps the
+worker alive.
+
+Evening digest: applications prepared, awaiting review, guard failures, dead
+connectors, token spend.
+
+Optional Next.js dashboard for history and score-threshold tuning.
+
+
+================================================================================
+5. RUNNING COST
+================================================================================
+
+Assumes ~800 raw postings/day -> ~60 LLM-scored -> ~12 tailored.
+
+SERVER (Gemini 2.5 Flash free tier) - Rs 0 / MONTH
+  72 requests/day sits comfortably inside the free tier's limits, and no
+  billing account is attached, so there is no path to a surprise charge.
+  THIS IS WHAT RUNS DAILY.
+
+LOCAL (Claude) - pay only when developing
+  With prompt caching on the stable prefix and the Batch API:
+
+    STAGE                            MODEL                      ~DAILY
+    -------------------------------  -------------------------  -------
+    Scoring (60 JDs)                 Haiku 4.5, batched+cached  ~$0.10
+    Tailoring (12 resumes + letters) Opus 5, batched+cached     ~$0.44
+    Embeddings                       local bge-small, free       $0.00
+    -------------------------------  -------------------------  -------
+    TOTAL                                                       ~$0.54
+
+  But local runs are DEVELOPMENT runs, not daily ones. A handful of pipeline
+  executions while building costs a few rupees.
+
+REALISTIC TOTAL COST OF THIS PROJECT:
+  Rs 0 / month once deployed, plus perhaps Rs 100-200 in Claude calls across
+  the whole build.
+  Everything else (Postgres, Redis, Playwright, embeddings, all 15 job APIs)
+  is free and self-hosted.
+
+FOR LATER: if Gemini-tailored resumes ever read as flat compared to Claude's,
+the fix is LLM_PROVIDER=claude on the server for TAILORING ONLY (~12 calls/day
+~= Rs 700/mo on Sonnet 5, ~Rs 1,150 on Opus 5) while scoring stays free. The
+interface makes that a config change, not a rewrite.
+
+
+================================================================================
+6. LEGAL & ToS BOUNDARIES
+================================================================================
+
+IN SCOPE
+  - Reading public ATS job-board JSON and free aggregator APIs. Explicitly
+    permitted: Ashby's docs bless it, and SmartRecruiters' OpenAPI marks
+    public-posting auth as optional.
+  - Pre-filling companies' own application forms in a browser the candidate is
+    driving, with truthful information.
+
+NOT ATTEMPTED
+  - CAPTCHA solving, bypass, or suppression.
+  - Browser fingerprint spoofing or other anti-detection tooling.
+  These would breach the platforms' terms, and they are the reason unattended
+  submission is off the table.
+
+OUT OF SCOPE - LINKEDIN AND INDEED
+  LinkedIn User Agreement section 8.2 prohibits using "software, devices,
+  scripts, robots or any other means or processes ... to scrape or copy the
+  Services" and "bots or other unauthorized automated methods to access the
+  Services."
+
+  Indeed's terms are even more directly on point: "Use of any automation,
+  scripting, or bots to automate the Indeed Apply process outside of Indeed's
+  official vendors and tooling is prohibited," plus a blanket ban on automated
+  queries.
+
+  Neither offers a jobs API to individuals - Indeed's developer.indeed.com now
+  redirects to a partner-gated portal.
+
+  Account loss is a worse outcome for a job seeker than applying more slowly.
+  These appear in the digest as manual-open links only.
+
+GENERAL
+  - Honest User-Agent with contact email.
+  - Conservative rate limits.
+  - robots.txt respected on non-API fetches.
+  - No fabricated credentials - enforced by the provenance guard, not just by
+    prompt.
+
+
+================================================================================
+7. VERIFICATION
+================================================================================
+
+1.  PROVENANCE GUARD UNIT TESTS - the highest-value tests here.
+    Fixtures asserting rejection of: inflated metrics, added tech, altered
+    employer, altered dates, unknown atom id. GUARD MUST FAIL CLOSED.
+
+2.  NORMALIZER TESTS - salary strings ("12-18 LPA", "Rs 12,00,000", "$130k",
+    "Competitive"), seniority inference, dedupe collisions.
+
+3.  CONNECTOR CONTRACT TESTS - recorded HTTP fixtures per source; assert
+    normalized output shape and graceful handling of an empty/404 board.
+
+3b. CROSS-PROVIDER GOLDEN SET - 10 fixed JDs spanning good/borderline/bad
+    fits, run through BOTH Claude and Gemini. Assert:
+      - scores agree within +/-15
+      - the same jobs land above/below threshold
+      - both outputs pass Zod validation
+      - both tailored resumes pass the provenance guard
+    This is the test that stops local and server from silently diverging -
+    the one real hazard of a two-provider design. Run it manually (it costs
+    money and hits quota), not in a watch loop.
+
+4.  PREFILL COVERAGE - against a real live Greenhouse and Lever posting:
+    assert every required field populated, resume attached, and that NO submit
+    interaction exists in the codepath. Measure COVERAGE (% of required fields
+    filled), because that determines the manual effort per application.
+
+5.  END-TO-END - `pnpm cli run-daily`, then read all ~12 tailored resumes as a
+    recruiter would. THIS IS THE REAL QUALITY GATE; nothing else validates
+    whether tailoring is any good.
+
+6.  FIRST REAL SESSION - run `pnpm cli submit` on 3-5 applications by hand,
+    timing the per-application effort. If it is not under ~30 sec, the
+    adapters need more field coverage before scaling up.
+
+7.  ONGOING - weekly response/interview rate per source and per score band.
+    That is the only real measure of whether the matcher works, and it should
+    move the score threshold.
+
+
+================================================================================
+8. OPEN ITEMS TO CONFIRM DURING BUILD
+================================================================================
+
+- config/legal.yaml - work authorization, notice period, current/expected CTC,
+  willingness to relocate. Filled once; the bot never guesses these.
+
+- Telegram bot token (or fall back to email digest).
+
+- WHERE THE SERVER LIVES. The daily run needs a few minutes of CPU and no
+  inbound ports, so Oracle Cloud's always-free ARM tier or a Rs 400/mo Hetzner
+  box both work.
+  CAVEAT: Phase 5 needs a real browser you can SEE to clear CAPTCHAs, so
+  `pnpm cli submit` runs on the laptop against the server's database.
+  Discovery/scoring/tailoring on the server, submission local. Decide before
+  Phase 0, since it affects whether Postgres is exposed over the network or
+  reached via SSH tunnel (TUNNEL IS THE RIGHT ANSWER).
+
+- Free Google AI Studio API key for the Gemini provider.
+
+- Which ATS adapters to build beyond Lever + Greenhouse. Decide EMPIRICALLY:
+  run discovery for a week first, then count postings per atsType and build
+  adapters in descending volume order rather than guessing now.
+
+- Whether Workday is worth an adapter at all, given Tier 4 difficulty.
+  Likely no - treat as manual links.
+
+
+================================================================================
+9. TOPOLOGY SUMMARY
+================================================================================
+
+  SERVER (Gemini, Rs 0, 9 AM daily)        LOCAL (Claude, on demand)
+  |-- discover 15 sources                  `-- pnpm cli submit
+  |-- normalize + dedupe                       real browser; you clear
+  |-- filter + vector rank                     the CAPTCHA and click
+  |-- score 60 JDs                             ^
+  |-- tailor 12 resumes                        |
+  `-- Telegram digest -> phone                 reads the same DB
+                                               over an SSH tunnel
+
+The unattended work is exactly the work that CAN run unattended, and the part
+needing a human is the part you were going to be present for anyway.
+
+Expected output: ~8-12 applications/day, each with a resume genuinely rewritten
+for that job. Compare to the 40-50/day a blind spray bot manages, which get
+filtered out by recruiters.
+
+================================================================================
+END OF PLAN
+================================================================================

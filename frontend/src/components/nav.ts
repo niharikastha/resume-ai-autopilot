@@ -1,0 +1,97 @@
+import {
+  Briefcase,
+  Building2,
+  FileText,
+  Gauge,
+  History,
+  LayoutDashboard,
+  Plug,
+  Search,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+import type { Route } from 'next';
+
+/**
+ * The nav lives here rather than in shell.tsx because the sidebar, the mobile tab
+ * bar and the command palette all need the same list. Three copies of it would
+ * drift the moment a route is added.
+ *
+ * href is a typed route, not a string: next.config's typedRoutes turns a stale
+ * nav link into a build error rather than a 404 someone finds later.
+ */
+export interface NavItem {
+  href: Route;
+  label: string;
+  icon: LucideIcon;
+  /** Shown in the command palette only, where there is room to explain. */
+  hint?: string;
+}
+
+/** Candidate side. An admin sees these too - they are also a job seeker. */
+export const CANDIDATE_NAV: NavItem[] = [
+  {
+    href: '/app',
+    label: 'Overview',
+    icon: LayoutDashboard,
+    hint: 'Today at a glance',
+  },
+  {
+    href: '/app/jobs',
+    label: 'Jobs',
+    icon: Search,
+    hint: 'Everything discovered for you',
+  },
+  {
+    href: '/app/applications',
+    label: 'Applications',
+    icon: Briefcase,
+    hint: 'What you sent, and where it got to',
+  },
+  {
+    href: '/app/profile',
+    label: 'My profile',
+    icon: FileText,
+    hint: 'Your answers, CTC and notice period',
+  },
+];
+
+/** Admin side. Rendered only for ADMIN - but the server refuses these routes
+ *  for a USER regardless, which is the actual control (PLAN-v2 2A.1). */
+export const ADMIN_NAV: NavItem[] = [
+  { href: '/admin', label: 'Pipeline', icon: Gauge, hint: 'Funnel and health' },
+  {
+    href: '/admin/companies',
+    label: 'Companies',
+    icon: Building2,
+    hint: 'Boards being watched',
+  },
+  {
+    href: '/admin/runs',
+    label: 'Connector runs',
+    icon: History,
+    hint: 'Every fetch, with its errors',
+  },
+  {
+    href: '/admin/users',
+    label: 'Accounts',
+    icon: Users,
+    hint: 'Approve and suspend people',
+  },
+  {
+    href: '/admin/integrations',
+    label: 'Integrations',
+    icon: Plug,
+    hint: 'Which keys are configured',
+  },
+];
+
+/** True when a nav item should be highlighted for the current pathname.
+ *
+ *  The two section roots need an exact match: `/app` is a prefix of every
+ *  candidate route, so a plain startsWith would light up Overview on all of them.
+ */
+export function isNavActive(href: string, pathname: string): boolean {
+  if (href === '/app' || href === '/admin') return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

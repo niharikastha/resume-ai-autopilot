@@ -1,0 +1,623 @@
+// Data model for PLAN-v2.txt section 2.
+//
+// Two notes that explain otherwise-odd choices in this file:
+//
+// 1. EMBEDDINGS. Prisma has no `vector` type, so embedding columns are declared
+//    Unsupported("vector(384)") and are invisible to the generated client.
+//    Reads and writes go through raw SQL over @prisma/adapter-pg. The dimension
+//    is 384 because embeddings come from local bge-small-en-v1.5, chosen so
+//    there is no second paid API (PLAN.txt constraint 2).
+//
+// 2. TENANT-ABSENCE. CompanyProbe exists because Keka, Zoho Recruit and
+//    Darwinbox all return HTTP 200 for companies that do not exist. Probe
+//    results must be remembered so a dead slug is never retried, and so a
+//    "miss" is distinguishable from a "tenant not found".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// The datasource URL is supplied by prisma.config.ts, which loads the repo-root
+// .env. Prisma 7 reads connection config from there rather than from `url` here.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// ACCOUNTS  (PLAN-v2 section 2A)
+// ---------------------------------------------------------------------------
+
+/// ADMIN operates the machine and uses it as a candidate. USER only uses it.
+/// The distinction is enforced by a server-side guard on every admin route;
+/// hiding a nav link is not access control (2A.1).
+enum Role {
+  ADMIN
+  USER
+}
+
+model User {
+  id    String @id @default(uuid())
+  email String @unique
+  name  String
+  role  Role   @default(USER)
+
+  /// scrypt. Format: "scrypt$N$r$p$<salt-b64>$<hash-b64>", so the cost
+  /// parameters travel with the hash and can be raised without invalidating
+  /// existing passwords. node:crypto rather than bcrypt/argon2 - no native
+  /// build, no new dependency, adequate for a handful of accounts (2A.6).
+  passwordHash String
+
+  /// Whether this account may sign in AT ALL. Self-signup creates it false.
+  active      Boolean   @default(true)
+
+  /// When an admin let a self-signed-up account in, and who did it.
+  ///
+  /// Separate from `active` on purpose, because the two answer different
+  /// questions and the admin queue needs to tell them apart:
+  ///
+  ///   approvedAt NULL  + active false -> new signup, never reviewed
+  ///   approvedAt set   + active false -> approved once, since suspended
+  ///   approvedAt set   + active true  -> normal account
+  ///
+  /// Collapsing these into one boolean would put a brand-new stranger and an
+  /// account you deliberately suspended in the same bucket, which is exactly the
+  /// distinction the reviewer is trying to make.
+  approvedAt   DateTime?
+  approvedById String?
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sessions       Session[]
+  passwordResets PasswordReset[]
+  profiles     CandidateProfile[]
+  skillsReserve SkillsReserve[]
+  matchScores  MatchScore[]
+  applications Application[]
+  answers      ApplicationAnswers?
+
+  @@index([role])
+  /// The admin approval queue: pending accounts, oldest first.
+  @@index([active, approvedAt])
+  @@map("users")
+}
+
+/// One REFRESH token. Opaque and random - it carries no claims, so nothing about
+/// a session is client-assertable, and revocation is immediate because it is a
+/// row rather than a signature.
+///
+/// A login opens a FAMILY. Each refresh exchanges the current token for a new row
+/// in the same family and stamps the old one `rotatedAt`. A rotated token being
+/// presented a second time can only mean it was captured (the legitimate client
+/// already threw its copy away), so that revokes the entire family rather than
+/// just the one row - a thief who used it once must not be able to keep going,
+/// and neither should whoever they stole it from continue unaware.
+///
+/// The column names are the ORIGINAL ones (`tokenHash`, `expiresAt`) via @map.
+/// The field names changed because their meaning narrowed from "the session
+/// token" to "the refresh token specifically"; the columns did not, so this
+/// migration adds and never drops. Renaming them would have bought a tidier
+/// dump for a destructive migration, which is a bad trade.
+model Session {
+  id               String   @id @default(uuid())
+  /// SHA-256 of the refresh cookie. The raw token is never stored, so a database
+  /// dump does not hand over live sessions.
+  refreshTokenHash String   @unique @map("tokenHash")
+  userId           String
+
+  /// Shared by every rotation descending from one login. This is the unit of
+  /// revocation, not the individual row.
+  familyId         String
+
+  /// Sliding window. Extended on each refresh, but never past absoluteExpiresAt.
+  refreshExpiresAt DateTime @map("expiresAt")
+
+  /// Hard ceiling set at login. Rotation cannot push past it, so a continuously
+  /// refreshed session still ends and a silently-stolen cookie is not a
+  /// permanent grant.
+  absoluteExpiresAt DateTime
+
+  /// Set when this token has been exchanged. Presenting it again after this is
+  /// the reuse signal described above.
+  rotatedAt     DateTime?
+  revokedAt     DateTime?
+  /// Why it died - "logout", "reuse-detected", "password-change". Read by nobody
+  /// in code; it exists so the sessions table can answer "what happened here?"
+  revokedReason String?
+
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessTokens AccessToken[]
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([refreshExpiresAt])
+  @@map("sessions")
+}
+
+/// One SHORT-LIVED access token, which is what actually authorises a request.
+///
+/// Opaque and stored, not a JWT. That means every request costs one indexed
+/// lookup, and buys the property the whole design rests on: disabling an account
+/// or detecting a stolen refresh token ends access immediately, with no window
+/// during which a signature is still honoured.
+model AccessToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  sessionId String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([expiresAt])
+  @@map("access_tokens")
+}
+
+/// A pending password reset. Single-use, short-lived, and only the hash is kept -
+/// the emailed token is the only copy, exactly like a session cookie.
+///
+/// Rows are kept after use rather than deleted, so `usedAt` can distinguish "this
+/// link was already used" from "this link never existed". Both refuse the reset;
+/// only one of them means someone should worry.
+model PasswordReset {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  /// Recorded to make "who has been asking for resets on my account" answerable.
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+/// Non-secret operational settings, admin-editable.
+///
+/// SECRETS ARE NOT HERE and never will be. API keys stay in .env; the admin UI
+/// reports only whether each integration is configured. Writing credentials
+/// through a web form turns one gitignored file into a column, a request body,
+/// a log line and a response - four new leak paths - to save one text-editor
+/// visit. See PLAN-v2 2A.4.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("app_settings")
+}
+
+/// v1's config/legal.yaml, now per-user and USER-WRITABLE ONLY.
+///
+/// An admin can see that these are unfilled - it blocks the pipeline - but
+/// cannot fill them. Guessing someone else's visa status or expected salary
+/// onto a real job application is worse than a blocked pipeline (2A.5).
+///
+/// EEO/demographic fields are deliberately absent from this model entirely.
+/// They are never stored, never inferred and never auto-filled; the form filler
+/// leaves them at "decline to self-identify".
+model ApplicationAnswers {
+  userId String @id
+
+  workAuthorization String? /// e.g. "Indian citizen, no sponsorship required"
+  needsSponsorship  Boolean?
+  noticePeriodDays  Int?
+  currentCtcLpa     Float?
+  expectedCtcLpa    Float?
+  willingToRelocate Boolean?
+  earliestStartDate DateTime?
+  /// Free-form { question: answer } for recurring screening questions the
+  /// candidate has already answered by hand once.
+  customAnswers     Json?
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("application_answers")
+}
+
+// ---------------------------------------------------------------------------
+// PROFILE
+// ---------------------------------------------------------------------------
+
+/// Canonical truth about the candidate. The atom list is the ONLY thing
+/// tailoring may draw from - see ResumeVariant and PLAN-v2 phase 5.
+model CandidateProfile {
+  id        String   @id @default(uuid())
+  userId    String
+  /// e.g. "primary". Unique PER USER, not globally - two candidates both
+  /// naming their profile "primary" is normal.
+  label     String
+  fullName  String
+  email     String
+  phone     String?
+  location  String?
+  linkedIn  String?
+  github    String?
+  portfolio String?
+
+  /// Array of:
+  ///   { id, kind: 'bullet'|'skill'|'role'|'edu', text, tech[], metrics[],
+  ///     employer, dateRange }
+  /// Produced by the LLM at ingest, then confirmed by a human before anything
+  /// downstream is allowed to use it.
+  atoms Json
+
+  /// Whole-profile vector. Per-atom vectors live in ProfileAtomEmbedding.
+  embedding Unsupported("vector(384)")?
+
+  sourceResumePath String?
+  confirmedAt      DateTime? /// null until the human confirmation gate passes
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  atomEmbeddings ProfileAtomEmbedding[]
+  resumeVariants ResumeVariant[]
+
+  @@unique([userId, label])
+  @@index([userId])
+  @@map("candidate_profiles")
+}
+
+/// One row per atom, so an atom can be matched to a JD individually rather than
+/// only via the whole-profile vector.
+model ProfileAtomEmbedding {
+  id        String                     @id @default(uuid())
+  profileId String
+  atomId    String
+  text      String
+  embedding Unsupported("vector(384)")?
+
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, atomId])
+  @@map("profile_atom_embeddings")
+}
+
+/// Skills the candidate genuinely has but chose not to list on the resume.
+/// EMPTY BY DEFAULT: facts-only tailoring was the decision. It exists so that
+/// widening the provenance guard's allowed-tech union later is a config change
+/// rather than a rewrite of the guard.
+model SkillsReserve {
+  id        String   @id @default(uuid())
+  userId    String
+  skill     String
+  note      String?
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skill])
+  @@map("skills_reserve")
+}
+
+// ---------------------------------------------------------------------------
+// COMPANIES AND SOURCES
+// ---------------------------------------------------------------------------
+
+enum AtsType {
+  GREENHOUSE
+  LEVER
+  ASHBY
+  SMARTRECRUITERS
+  WORKABLE
+  WORKDAY /// discovered and linked, never auto-filled (PLAN-v2 phase 6)
+  CUSTOM /// in-house form - handled by the generic form filler
+  UNKNOWN
+}
+
+/// Pay proxy, and the PRIMARY pay signal in this system.
+///
+/// The spike found structured salary on 2 of 699 India postings (0.3%), and
+/// both were junk. So posting salary cannot rank Indian jobs; company tier is
+/// what does the work. Bands are starting estimates to calibrate against real
+/// offers, NOT researched figures - see PLAN-v2 change 2.
+enum CompanyTier {
+  T1_GLOBAL_INDIA_OFFICE /// ~Rs 25-50 LPA. Highest yield found in the spike.
+  T2_FUNDED_INDIAN_STARTUP /// ~Rs 18-35 LPA
+  T3_INDIAN_MIDMARKET /// ~Rs 8-18 LPA. The actual target band.
+  T4_SERVICES_STAFFING /// ~Rs 6-12 LPA. Kept, ranked last.
+  UNKNOWN
+}
+
+model Company {
+  id       String      @id @default(uuid())
+  name     String
+  slug     String      @unique
+  domain   String?
+  atsType  AtsType     @default(UNKNOWN)
+  /// Board identifier on the ATS. For Greenhouse/Lever/Ashby this is the URL
+  /// token; for SmartRecruiters the company id.
+  atsToken String?
+  tier     CompanyTier @default(UNKNOWN)
+  isAgency Boolean     @default(false)
+
+  /// { lastFetchedAt, postingsSeen, reachableSeen, consecutiveEmptyRuns }
+  /// Drives pruning: a board that keeps returning nothing drops to a weekly
+  /// fetch so the list can grow 10x without the daily run slowing down.
+  yieldStats Json?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  postings     JobPosting[]
+  applications Application[]
+
+  @@unique([atsType, atsToken])
+  @@index([atsType, active])
+  @@index([tier])
+  @@map("companies")
+}
+
+enum ProbeResult {
+  HIT
+  MISS /// clean 404 - slug is not on this ATS
+  TENANT_NOT_FOUND /// HTTP 200 but the body says the tenant is absent
+  FORBIDDEN /// tenant exists, board not publicly readable
+  ERROR
+}
+
+/// Every slug guess and its outcome, so the list builder never re-probes a
+/// known-dead slug. Blind slug guessing hit ~24% in the spike, which is high
+/// enough to be the primary list-growth technique - but only if attempts are
+/// remembered.
+model CompanyProbe {
+  id        String      @id @default(uuid())
+  slugTried String
+  atsType   AtsType
+  result    ProbeResult
+  httpStatus Int?
+  jobsFound Int?
+  notes     String?
+  probedAt  DateTime    @default(now())
+
+  @@unique([slugTried, atsType])
+  @@index([result])
+  @@map("company_probes")
+}
+
+/// Per-connector run log. Makes a silently-dead connector visible, which is the
+/// main failure mode of depending on undocumented endpoints.
+model SourceRun {
+  id            String    @id @default(uuid())
+  source        String
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  companiesTried Int      @default(0)
+  postingsSeen  Int       @default(0)
+  postingsNew   Int       @default(0)
+  errors        Int       @default(0)
+  errorSample   Json?
+
+  @@index([source, startedAt])
+  @@map("source_runs")
+}
+
+// ---------------------------------------------------------------------------
+// POSTINGS
+// ---------------------------------------------------------------------------
+
+enum RemoteType {
+  ONSITE
+  HYBRID
+  REMOTE_INDIA /// applicable
+  REMOTE_GLOBAL /// applicable
+  REMOTE_OTHER_REGION /// NOT applicable - e.g. "Remote - US"
+  UNKNOWN
+}
+
+/// Where a salary figure came from. STATED is rare enough in India (0.3%) that
+/// the ESTIMATED and UNKNOWN paths are the normal case, not the exception.
+enum SalarySource {
+  STATED
+  ESTIMATED
+  UNKNOWN
+}
+
+model JobPosting {
+  id          String  @id @default(uuid())
+  source      String /// connector id: 'greenhouse' | 'lever' | ...
+  sourceJobId String
+  companyId   String?
+
+  title           String
+  normalizedTitle String
+  descriptionRaw  String  @db.Text
+  descriptionText String  @db.Text
+
+  location   String?
+  remoteType RemoteType @default(UNKNOWN)
+  seniority  String?
+  yoeMin     Int?
+  yoeMax     Int?
+
+  salaryMin        Int?
+  salaryMax        Int?
+  salaryCurrency   String?
+  salaryPeriod     String?
+  salarySource     SalarySource @default(UNKNOWN)
+  salaryConfidence Float?
+
+  applyUrl String
+  atsType  AtsType   @default(UNKNOWN)
+  postedAt DateTime?
+
+  /// Hash of the normalized content. Changes when the employer edits the
+  /// posting, which is how a re-scored posting is distinguished from a new one.
+  contentHash String
+  embedding   Unsupported("vector(384)")?
+
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @updatedAt
+  closedAt    DateTime?
+
+  company      Company?      @relation(fields: [companyId], references: [id])
+  matchScores  MatchScore[]
+  applications Application[]
+  resumeVariants ResumeVariant[]
+
+  @@unique([source, sourceJobId])
+  @@index([contentHash])
+  @@index([normalizedTitle])
+  @@index([postedAt])
+  @@index([atsType])
+  @@map("job_postings")
+}
+
+// ---------------------------------------------------------------------------
+// MATCHING
+// ---------------------------------------------------------------------------
+
+enum MatchVerdict {
+  STRONG
+  GOOD
+  BORDERLINE
+  WEAK
+  REJECT
+}
+
+/// A score is profile-x-job, so it is per-user. The same posting can be STRONG
+/// for one candidate and REJECT for another; a shared score table would be
+/// meaningless.
+model MatchScore {
+  id      String @id @default(uuid())
+  userId  String
+  jobId   String
+  score   Int /// 0-100
+  verdict MatchVerdict
+
+  reasons       String[]
+  missingSkills String[]
+
+  estimatedSalaryLPA Float?
+  salaryConfidence   Float?
+
+  /// Recorded so a quality regression can be traced to a provider. This is one
+  /// of the four defenses against the two environments quietly diverging.
+  llmProvider String
+  model       String
+
+  vectorDistance Float?
+  scoredAt       DateTime @default(now())
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  /// One current score per candidate per posting. Re-scoring after the employer
+  /// edits a posting (contentHash change) updates this row rather than adding a
+  /// second one, so "how many jobs has this user been scored against" is a
+  /// count, not a distinct-count that could quietly go wrong.
+  @@unique([userId, jobId])
+  @@index([jobId])
+  @@index([userId, score])
+  @@map("match_scores")
+}
+
+// ---------------------------------------------------------------------------
+// TAILORING
+// ---------------------------------------------------------------------------
+
+model ResumeVariant {
+  id        String @id @default(uuid())
+  profileId String
+  jobId     String
+
+  /// { selectedAtomIds[], rewrites: [{atomId, text}], headline }
+  atomSelection Json
+  coverLetter   String? @db.Text
+  docxPath      String?
+  pdfPath       String?
+
+  /// Provenance guard output. Retained even when the variant PASSES: a rising
+  /// violation rate across variants is the early signal that the prompt is
+  /// drifting, and that is only visible if passes are recorded too.
+  provenanceReport Json
+  guardPassed      Boolean
+
+  createdAt DateTime @default(now())
+
+  profile      CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  job          JobPosting       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@index([jobId])
+  @@index([guardPassed])
+  @@map("resume_variants")
+}
+
+// ---------------------------------------------------------------------------
+// APPLICATIONS
+// ---------------------------------------------------------------------------
+
+enum ApplicationStatus {
+  QUEUED
+  AWAITING_REVIEW
+  APPROVED
+  REJECTED /// rejected by the human from the digest
+  PREPARED /// form filled, waiting on the human to submit
+  SUBMITTED /// only on DETECTED confirmation, never optimistically
+  FAILED
+  SKIPPED
+}
+
+model Application {
+  id              String            @id @default(uuid())
+  userId          String
+  jobId           String
+  companyId       String
+  /// Denormalized from JobPosting purely so the unique index below can exist.
+  normalizedTitle String
+  status          ApplicationStatus @default(QUEUED)
+
+  resumeVariantId  String?
+  coverLetter      String? @db.Text
+  screeningAnswers Json?
+
+  /// Percentage of required fields the adapter managed to fill. This is the
+  /// number that determines manual effort per application, so it is measured
+  /// rather than assumed (PLAN.txt verification item 4).
+  prefillCoverage Float?
+
+  submittedAt      DateTime?
+  confirmationText String?
+  screenshotPath   String?
+  failureReason    String?
+  llmProvider      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job           JobPosting     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  company       Company        @relation(fields: [companyId], references: [id])
+  resumeVariant ResumeVariant? @relation(fields: [resumeVariantId], references: [id])
+
+  /// THE STRUCTURAL GUARD AGAINST RE-APPLYING.
+  /// A duplicate application fails at the database, not in application logic
+  /// that could carry a bug.
+  ///
+  /// SCOPED BY userId as of v2. Without userId this index is not merely
+  /// incomplete, it is actively wrong: it would silently refuse one candidate's
+  /// application because a DIFFERENT candidate had already applied to that role.
+  /// See PLAN-v2 2A.3 - the one v1 invariant that roles break rather than
+  /// extend.
+  @@unique([userId, companyId, normalizedTitle])
+  @@index([status])
+  @@index([userId, status])
+  @@map("applications")
+}

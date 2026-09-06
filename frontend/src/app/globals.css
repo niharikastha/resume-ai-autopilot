@@ -1,0 +1,408 @@
+@import 'tailwindcss';
+
+/*
+ * ============================================================================
+ * MIDNIGHT — the Autopilot theme
+ * ============================================================================
+ *
+ * Dark FIRST. `:root` holds the dark values and `.light` overrides them, which
+ * is the opposite of the usual arrangement and deliberate: dark is the default
+ * theme, so it should be the one that needs no class to apply. Server-rendered
+ * HTML therefore paints dark before next-themes has run, and there is no flash
+ * of a light page on first load.
+ *
+ * Dark mode is a SELECTED set of steps, not an inversion of the light one. Every
+ * ramp below came out of scripts/validate_palette.js run against the surface it
+ * is actually drawn on, not out of a colour picker:
+ *
+ *   ordinal ramp, dark   on #13151C
+ *     #46fbfb,#00dcdc,#00bcbc,#009d9d,#007f7f          ALL CHECKS PASS
+ *     monotone L · every adjacent gap >= 0.06 · dark end 3.77:1 · hue spread 0deg
+ *
+ *   ordinal ramp, light  on #ffffff
+ *     #02caca,#00b0b0,#009696,#007d7e,#006566          ALL CHECKS PASS
+ *     monotone L · gaps >= 0.06 · light end 2.04:1 · hue spread 1deg
+ *
+ *   status, dark   #01ac7f,#c98000,#db3643             ALL CHECKS PASS
+ *     all-pairs CVD dE 8.1 (clears the 8.0 target, not merely the 6.0 floor)
+ *   status, light  #5ace63,#af7100,#af0532             PASS + one WARN
+ *     all-pairs CVD dE 12.6 · #5ace63 is 2.01:1 on white (WARN, see below)
+ *
+ * The previous theme failed the check that matters most here: its light-mode
+ * green/amber pair fell to dE 3.6 under simulated deuteranopia, well under the
+ * 6.0 floor, meaning a colour-blind reader saw one colour where there were two.
+ * At dE 12.6 this palette clears it comfortably.
+ *
+ * The light-mode green's 2.01:1 against white is a KNOWN, FORCED trade, not an
+ * oversight. Sweeping every green that clears 3:1 on white (grid over the sRGB
+ * green region, each candidate run through validate()) returns ZERO that also
+ * hold dE >= 8 from #af7100 under protanopia: the moment a green is dark enough
+ * to clear 3:1 on white, a protanope sees it as the same dark yellow-brown as
+ * the amber. The only survivors were teals, which would then collide with both
+ * the ordinal ramp and --link. So: keep the CVD separation, accept the contrast
+ * WARN, and pay its price the way the check requires - StatusBadge renders an
+ * icon AND the word, in --ink-primary at full contrast. The green tints a pill
+ * and a glyph; it is never what you read the state off.
+ *
+ * Chart series wear --seq-* / --hist. UI chrome wears --accent-*. They are
+ * separate scales on purpose: an accent is free to be as loud as it likes
+ * because nothing is decoded from it, whereas a series colour carries a value
+ * and has to survive colour-blind simulation.
+ */
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* --- surfaces ---------------------------------------------------------
+     Four steps, not two. A single "card" colour on a near-black canvas makes
+     every panel float at the same height, and the eye reads a flat wall of
+     boxes. The canvas is the darkest thing on screen so raised surfaces read
+     as lit from the front. */
+  --canvas: #0a0b0f;
+  --surface: #101218;
+  --surface-sunken: #0a0b0f;
+  --surface-raised: #13151c;
+  --surface-hover: #191c25;
+
+  --border: #232733;
+  --border-strong: #333a4a;
+
+  /* --- ink -------------------------------------------------------------- */
+  --ink-primary: #edeff5;
+  --ink-secondary: #a8b0bf;
+  --ink-muted: #6e7686;
+  --ink-inverse: #0a0b0f;
+
+  /* --- accents ----------------------------------------------------------
+     Lime is the brand and the one primary action per screen. --accent-ink is
+     the only colour allowed on top of it: near-black at 16.7:1, because white
+     on lime is 1.3:1 and unreadable.
+
+     --link is a SEPARATE token from --accent. Lime as text on a dark canvas is
+     legible, but lime text next to a lime button makes everything look
+     clickable and nothing look primary, so links get cyan instead. */
+  --accent: #c6ff3d;
+  --accent-ink: #0a0b0f;
+  --accent-hover: #d4ff6b;
+  --link: #35e0d8;
+
+  --accent-cyan: #35e0d8;
+  --accent-violet: #a78bfa;
+  --accent-coral: #ff6b4a;
+
+  /* --- ordinal ramp: funnel stages -------------------------------------- */
+  --seq-1: #46fbfb;
+  --seq-2: #00dcdc;
+  --seq-3: #00bcbc;
+  --seq-4: #009d9d;
+  --seq-5: #007f7f;
+
+  /* One hue for the histogram - the bins are one distribution, so a ramp
+     across them would encode a difference that does not exist. */
+  --hist: #a78bfa;
+
+  /* --- reserved status palette. Never reused as "series 4". ------------- */
+  --status-good: #01ac7f;
+  --status-warning: #c98000;
+  --status-critical: #db3643;
+
+  --grid: #1c1f28;
+  --axis: #3a4150;
+
+  /* --- shape + depth ----------------------------------------------------
+     One radius scale, referenced everywhere, so nothing is a stray magic
+     number. Shadows on a near-black canvas do almost nothing - a black shadow
+     on black is invisible - so depth comes from a hairline top highlight and,
+     for the accent, an actual coloured glow. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 999px;
+
+  --glow-accent: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 8px 32px -8px color-mix(in srgb, var(--accent) 45%, transparent);
+  --glow-soft: 0 1px 0 0 color-mix(in srgb, #ffffff 6%, transparent) inset,
+    0 12px 32px -16px #000000;
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.light {
+  color-scheme: light;
+
+  --canvas: #f4f5f8;
+  --surface: #ffffff;
+  --surface-sunken: #f4f5f8;
+  --surface-raised: #ffffff;
+  --surface-hover: #f7f8fa;
+
+  --border: #e5e7ec;
+  --border-strong: #c8ccd6;
+
+  --ink-primary: #16181d;
+  --ink-secondary: #4a5261;
+  --ink-muted: #6e7686;
+  --ink-inverse: #ffffff;
+
+  /* Lime survives the move to a light canvas as a FILL (its 16.7:1 against
+     near-black ink is a property of the pair, not of the page) but not as
+     TEXT, so --link goes deep teal here: 5.36:1 on white. */
+  --accent: #c6ff3d;
+  --accent-ink: #0a0b0f;
+  --accent-hover: #b6f524;
+  --link: #0e7490;
+
+  --accent-cyan: #0e7490;
+  --accent-violet: #7c5cff;
+  --accent-coral: #e5502e;
+
+  --seq-1: #02caca;
+  --seq-2: #00b0b0;
+  --seq-3: #009696;
+  --seq-4: #007d7e;
+  --seq-5: #006566;
+
+  --hist: #7c5cff;
+
+  --status-good: #5ace63;
+  --status-warning: #af7100;
+  --status-critical: #af0532;
+
+  --grid: #eceef2;
+  --axis: #b6bcc8;
+
+  /* Here a real shadow works, so depth stops relying on the inset highlight. */
+  --glow-soft: 0 1px 2px 0 rgb(16 24 40 / 0.04),
+    0 8px 24px -12px rgb(16 24 40 / 0.12);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink-primary);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-link: var(--link);
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-critical: var(--status-critical);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink-primary);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus is never removed, only restyled. Keyboard navigation is the whole point
+   of a review queue you work through quickly, and the command palette makes the
+   keyboard a first-class way to move around. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--ink-primary);
+}
+
+/* Tabular figures so numbers in a column line up and can be compared by eye. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Numbers get the mono face. A count-up animation on proportional digits makes
+   the whole tile jitter as glyph widths change between frames; mono plus
+   tabular-nums pins every digit to the same advance width. */
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* --- ambient background ------------------------------------------------------
+   A single fixed radial wash behind everything, so the canvas is not a flat
+   black rectangle. Fixed rather than scrolling: it is lighting, and lighting
+   does not move with the content. */
+.ambient::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      60rem 40rem at 12% -10%,
+      color-mix(in srgb, var(--accent-cyan) 9%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      50rem 34rem at 92% 4%,
+      color-mix(in srgb, var(--accent-violet) 8%, transparent),
+      transparent 70%
+    );
+}
+
+/* --- motion ------------------------------------------------------------------
+   Every animation below is a transform or an opacity, never a layout property,
+   so none of them can trigger reflow mid-flight. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-pop {
+  animation: pop 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* Stagger helper. A list where every row fades in at once is a single event;
+   40ms apart reads as the list assembling, which is what makes it feel quick
+   rather than merely animated. */
+.stagger > * {
+  animation: rise 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(n + 7) { animation-delay: 240ms; }
+
+/* The skeleton's moving highlight. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-hover);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ink-muted) 12%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+/*
+ * One switch turns all of it off.
+ *
+ * prefers-reduced-motion is not a preference about taste - for some people
+ * moving interfaces cause nausea or trigger migraine. The shimmer and the
+ * count-up are the worst offenders because they never stop, so they are killed
+ * outright rather than shortened. Transitions survive at 0.01ms because
+ * removing them entirely breaks code that waits for transitionend.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton::after {
+    display: none;
+  }
+}
+
+/* Recharts draws its own focus outline on every bar; ours is better. */
+.recharts-wrapper :focus {
+  outline: none;
+}
+
+/* Thin scrollbars that match the theme instead of the OS default light ones. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
