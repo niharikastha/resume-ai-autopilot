@@ -16,7 +16,6 @@ import {
   AtsType,
   CompanyTier,
   PrismaClient,
-  RemoteType,
   Role,
   SalaryPeriod,
   SalarySource,
@@ -27,6 +26,7 @@ import { config } from 'dotenv';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { hashPassword } from '../src/auth/password';
+import { normalizeTitle, remoteType, seniority } from '../src/discovery/normalize';
 
 config({ path: resolve(__dirname, '../../.env') });
 
@@ -103,56 +103,14 @@ const TIERS: Record<string, CompanyTier> = {
   sigmoid: CompanyTier.T4_SERVICES_STAFFING,
 };
 
-const IN_LOCATION =
-  /\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|gurgaon|gurugram|noida|chennai|kolkata|bhubaneswar|ahmedabad|jaipur|indore|kochi|coimbatore)\b/i;
-
 /**
- * Remote eligibility, not just the remote flag. "Remote - India" is applicable;
- * "Remote - US" is not, and lumping them together fills the pool with jobs that
- * cannot be taken. See PLAN-v2 phase 1c.
+ * normalizeTitle, remoteType and seniority used to be defined here. They now live in
+ * src/discovery/normalize.ts and are IMPORTED, because the real connectors need the
+ * same three functions and a second copy of normalizeTitle would be a genuine bug
+ * rather than mere duplication: it is the dedup key that `job_postings` is upserted
+ * on and that `applications` is unique by, so a seed and a connector that disagree
+ * by one character treat the same job as two jobs.
  */
-function remoteType(location: string): RemoteType {
-  const l = location.toLowerCase();
-  const isRemote = /\bremote\b/.test(l);
-  const isHybrid = /\bhybrid\b/.test(l);
-  const inIndia = IN_LOCATION.test(location);
-
-  if (isHybrid) return RemoteType.HYBRID;
-  if (isRemote && inIndia) return RemoteType.REMOTE_INDIA;
-  if (isRemote && /\b(us|usa|united states|canada|emea|uk|europe|latam|brazil|germany)\b/.test(l))
-    return RemoteType.REMOTE_OTHER_REGION;
-  if (isRemote) return RemoteType.REMOTE_GLOBAL;
-  if (inIndia) return RemoteType.ONSITE;
-  return RemoteType.UNKNOWN;
-}
-
-const SENIOR = /\b(senior|sr\.?|staff|principal|lead|director|head of|chief|iii|iv|v)\b/i;
-const JUNIOR = /\b(junior|jr\.?|associate|graduate|entry|intern|i{1,2})\b/i;
-
-function seniority(title: string): string | null {
-  if (SENIOR.test(title)) return 'senior';
-  if (JUNIOR.test(title)) return 'junior';
-  return 'mid';
-}
-
-function normalizeTitle(title: string): string {
-  // \p{L}\p{N} rather than a-z0-9. The ASCII class stripped every character of a
-  // Japanese title, leaving '' - and an empty normalizedTitle is not cosmetic:
-  // applications has UNIQUE(userId, companyId, normalizedTitle), so every posting
-  // that normalizes to '' collides with every other one at that company, and the
-  // second application is refused as a duplicate of a role it has nothing to do
-  // with. Two such rows existed until the migration backfilled them.
-  const normalized = title
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // A title made only of punctuation still normalizes to nothing. Falling back to
-  // the raw title keeps this function's promise - never empty for a non-empty
-  // input - which is what the CHECK constraint relies on.
-  return normalized || title.toLowerCase().trim();
-}
 
 /** Light-touch parse. Returns null for the common case of no usable figure. */
 function parseSalary(

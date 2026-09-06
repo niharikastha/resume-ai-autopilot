@@ -1,0 +1,67 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://job-boards.eu.greenhouse.io/groww/jobs/4880153101",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "internal_job_id": 4477650101,
+      "location": {
+        "name": "Bengaluru-VTP, India"
+      },
+      "metadata": [
+        {
+          "id": 9193480101,
+          "name": "Designation",
+          "value": "Associate",
+          "value_type": "short_text"
+        }
+      ],
+      "id": 4880153101,
+      "updated_at": "2026-08-27T07:35:34-04:00",
+      "requisition_id": "GRID-17155",
+      "title": "Associate - Content (Digest)",
+      "company_name": "Groww",
+      "first_published": "2026-06-03T02:46:08-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;div&gt;&lt;strong&gt;About Groww:&lt;/strong&gt;&lt;/div&gt;\n&lt;div&gt;We are a passionate group of people focused on making financial services accessible to every Indian through a multi-product platform. Each day, we help millions of customers take charge of their financial journey. Customer obsession is in our DNA. Every product, every design, every algorithm down to the tiniest detail is executed keeping the customers’ needs and convenience in mind. Our people are our greatest strength. Everyone at Groww is driven by ownership, customer-centricity, integrity and the passion to constantly challenge the status quo.&lt;/div&gt;\n&lt;div&gt;&amp;nbsp;&lt;/div&gt;\n&lt;div&gt;Are you as passionate about defying conventions and creating something extraordinary as we are? Let’s chat.&lt;/div&gt;\n&lt;div&gt;&amp;nbsp;&lt;/div&gt;\n&lt;div&gt;&lt;strong&gt;Our Vision&lt;/strong&gt;&lt;/div&gt;\n&lt;div&gt;Every individual deserves the knowledge, tools, and confidence to make informed financial decisions. At Groww, we are making sure every Indian feels empowered to do so through a cutting-edge multi-product platform offering a variety of financial services. Our long-term vision is to become the trusted financial partner for millions of Indians.&lt;/div&gt;\n&lt;div&gt;&amp;nbsp;&lt;/div&gt;\n&lt;div&gt;&lt;strong&gt;Our Values&lt;/strong&gt;&lt;/div&gt;\n&lt;div&gt;Our culture enables us to be what we are — India’s fastest-growing financial services company. It fosters an environment where collaboration, transparency, and open communication take center-stage and hierarchies fade away. There is space for every individual to be themselves and feel motivated to bring their best to the table, as well as craft a promising career for themselves.&lt;/div&gt;\n&lt;div&gt;The values that form our foundation are:&lt;/div&gt;\n&lt;ul&gt;\n&lt;li&gt;Radical customer centricity&lt;/li&gt;\n&lt;li&gt;Ownership-driven culture&lt;/li&gt;\n&lt;li&gt;Keeping everything simple&lt;/li&gt;\n&lt;li&gt;Long-term thinking&lt;/li&gt;\n&lt;li&gt;Complete transparency&lt;/li&gt;\n&lt;/ul&gt;\n&lt;div&gt;&lt;strong&gt;About the Role&lt;/strong&gt;&lt;/div&gt;\n&lt;p&gt;Are you someone who loves going down research rabbit holes and getting to the &lt;strong&gt;“Why?”&lt;/strong&gt; behind things? Do you enjoy using data to form strong opinions and insights?&lt;/p&gt;\n&lt;p&gt;We are looking for a &lt;strong&gt;curious and research-driven professional&lt;/strong&gt; who can analyse markets, sectors, companies and macro trends and turn complex information into &lt;strong&gt;simple, clear and engaging content&lt;/strong&gt;.&lt;/p&gt;\n&lt;div&gt;&lt;strong&gt;Key Responsibilities&lt;/strong&gt;&lt;/div&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;Deep Dive:&lt;/strong&gt; Research market trends, sectors and companies to uncover insights beyond readily available information.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Connect the dot:&lt;/strong&gt; Identify patterns and analyse market, industry and business trends.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Find the actionable takeaways:&lt;/strong&gt; Interpret financial and industry data and convert it into simple, meaningful insights.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Content Creation:&lt;/strong&gt; Translate research and insights into clear and engaging content for different formats.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Continuous Learning:&lt;/strong&gt; Explore new industries, topics, tools and sources to build deeper knowledge.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;div&gt;&lt;strong&gt;What We&#39;re Looking For&lt;/strong&gt;&lt;/div&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;Well-Read:&lt;/strong&gt; Strong interest in reading books, articles, newsletters and other sources to learn and discover new ideas.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Strong Communicator:&lt;/strong&gt; Ability to explain complex topics in a simple and engaging manner.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Curious Mindset:&lt;/strong&gt; Eagerness to explore different topics, industries and learn new tools.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;div&gt;&lt;strong&gt;Good to Have&lt;/strong&gt;&lt;/div&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;Creative Storytelling:&lt;/strong&gt; Ability to communicate through written, visual or audio formats.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Finance Knowledge:&lt;/strong&gt; Basic understanding of financial markets and investing is a plus, but curiosity and willingness to learn are more important.&lt;/li&gt;\n&lt;li&gt;&amp;nbsp;&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        {
+          "id": 4033749101,
+          "name": "Growth",
+          "child_ids": [
+            4037712101,
+            4037713101,
+            4033753101,
+            4033750101,
+            4033755101,
+            4033754101,
+            4033752101,
+            4033751101
+          ],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4018978101,
+          "name": "Bengaluru-VTP",
+          "location": "Bengaluru-VTP, India",
+          "child_ids": [],
+          "parent_id": 4018977101
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": null,
+      "ai_opt_out_request_url": "http://s101.recruiting.eu.greenhouse.io/ai_opt_out_request/job_post/4880153101/ai_opt_out"
+    }
+  ]
+}
