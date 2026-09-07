@@ -20,7 +20,7 @@ import { RemoteType } from '@prisma/client';
  * "New Delhi Township, Ohio". Both are real string-matching failures, and the
  * cost of getting them wrong is a job in the wrong country entering the pool.
  */
-const IN_LOCATION =
+export const IN_LOCATION =
   /\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|new delhi|delhi|gurgaon|gurugram|noida|chennai|kolkata|bhubaneswar|ahmedabad|jaipur|indore|kochi|coimbatore|trivandrum|thiruvananthapuram)\b/i;
 
 const OTHER_REGION =

@@ -62,6 +62,23 @@ export interface Connector {
    */
   listUrl(token: string, offset?: number): string;
 
+  /**
+   * The identifier forms to try when all that is known is a company's slug.
+   *
+   * Probing guesses `acme` from "Acme Corp" and asks each ATS whether it has a
+   * board by that name, which works because Greenhouse, Lever and Ashby tokens are
+   * lower case. SmartRecruiters ids are NOT: the board is `BoschGroup`, and
+   * `bosch` returns a perfectly well-formed 200 with `totalFound: 0` - so a
+   * lower-cased probe records a MISS against a board with 543 India postings on it.
+   * That is the exact failure the body-content rule was written to prevent, arriving
+   * through the identifier instead of the status code.
+   *
+   * Omitted means "the slug is the token", which is true of every connector but one.
+   * Each extra candidate costs one request per company per sweep, so a connector
+   * should return the few forms that are actually plausible, not a combinatorial set.
+   */
+  tokenCandidates?(slug: string): string[];
+
   /** Maps a parsed response body to postings. Must tolerate missing fields. */
   parse(body: unknown, token: string): RawPosting[];
 

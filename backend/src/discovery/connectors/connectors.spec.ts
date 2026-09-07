@@ -368,13 +368,29 @@ describe('SmartRecruitersConnector', () => {
     ],
   };
 
-  it('paginates with limit and offset', () => {
+  it('paginates with limit and offset, filtering to India at the API', () => {
+    // `country=in` is the reason SmartRecruiters was promoted over the Indian HR
+    // suites (PLAN-v2 change 3): it is the only one of the four vendors that will
+    // filter server-side, so a 40,000-posting global board costs one page of India
+    // roles instead of 400 pages we then throw away. Asserted because dropping the
+    // parameter would still work - just 100x more slowly, against someone's API.
     expect(connector.listUrl('alight', 0)).toBe(
-      'https://api.smartrecruiters.com/v1/companies/alight/postings?limit=100&offset=0',
+      'https://api.smartrecruiters.com/v1/companies/alight/postings?country=in&limit=100&offset=0',
     );
     expect(connector.listUrl('alight', 100)).toContain('offset=100');
     expect(connector.totalAvailable(list)).toBe(137);
     expect(connector.totalAvailable({})).toBeNull();
+  });
+
+  it('offers a PascalCase token candidate before the lower-cased slug', () => {
+    // The bug this fixes cost a 543-posting board. Probing lower-cased `bosch`
+    // returns a perfectly well-formed 200 with `totalFound: 0`, which is
+    // indistinguishable from "no such company" - the real identifier is
+    // `BoschGroup`. SmartRecruiters company ids are case-sensitive and frequently
+    // capitalised, so the capitalised form is tried FIRST and a hit wins.
+    expect(connector.tokenCandidates?.('bosch')).toEqual(['Bosch', 'bosch']);
+    // Already capitalised: one candidate, not a duplicate request.
+    expect(connector.tokenCandidates?.('Bosch')).toEqual(['Bosch']);
   });
 
   it('reads name, skips INTERNAL, and leaves the body empty for hydration', () => {

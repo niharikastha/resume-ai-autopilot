@@ -15,7 +15,7 @@
  * tried, which would fill the company list with boards that are not there.
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { AtsType, ProbeResult } from '@prisma/client';
+import { AtsType, CompanyTier, ProbeResult } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { companyProbeInput } from '../validation/domain.schema';
 import { CONNECTORS } from './connectors';
@@ -29,6 +29,28 @@ export interface ProbeOutcome {
   httpStatus: number | null;
   jobsFound: number | null;
   notes: string | null;
+  /**
+   * The identifier that actually answered, when it is not the slug.
+   *
+   * Set on a HIT only. This is what goes into `Company.atsToken` and therefore what
+   * the daily fetch uses - the slug is the question that was asked, the token is the
+   * board that was found, and for SmartRecruiters they differ.
+   */
+  token?: string;
+}
+
+/**
+ * What a curated list says about a company, beyond its slug.
+ *
+ * Passed in rather than derived, because tier is the primary pay signal in this
+ * system and a human judgement about an employer. `ensureCompany` will not invent
+ * one: absent this, a discovered company is created UNKNOWN and ranks below
+ * everything with a tier, which is the failure that loses nothing.
+ */
+export interface CompanyFacts {
+  name?: string;
+  tier?: CompanyTier;
+  isAgency?: boolean;
 }
 
 @Injectable()
@@ -49,7 +71,12 @@ export class CompanyProbeService {
    */
   async probeMany(
     slugs: string[],
-    options: { createCompanies?: boolean; recheck?: boolean } = {},
+    options: {
+      createCompanies?: boolean;
+      recheck?: boolean;
+      /** Curated name/tier per slug, from the company list. */
+      facts?: Map<string, CompanyFacts>;
+    } = {},
   ): Promise<ProbeOutcome[]> {
     if (!this.http.isConfigured()) {
       throw new FetchError(
@@ -87,10 +114,16 @@ export class CompanyProbeService {
 
         if (outcome.result === ProbeResult.HIT) {
           this.logger.log(
-            `HIT ${connector.source}/${slug} - ${outcome.jobsFound} postings`,
+            `HIT ${connector.source}/${outcome.token ?? slug} - ${outcome.jobsFound} postings`,
           );
-          if (options.createCompanies)
-            await this.ensureCompany(slug, connector);
+          if (options.createCompanies) {
+            await this.ensureCompany(
+              slug,
+              connector,
+              outcome.token ?? slug,
+              options.facts?.get(slug),
+            );
+          }
           // Stop at the first hit: a company is on one ATS, and continuing would
           // send four more requests to learn nothing.
           break;
@@ -102,13 +135,77 @@ export class CompanyProbeService {
   }
 
   /**
-   * One slug against one ATS.
+   * Records a board whose ATS and token are already known, without probing.
+   *
+   * The company list carries these for boards whose identifier is not guessable -
+   * SmartRecruiters' `BoschGroup` being the case that forced the field to exist. It
+   * is not an optimisation: no sequence of slug guesses finds that board, so without
+   * a way to state it outright the 543 India postings on it are unreachable.
+   *
+   * Returns false when the named ATS has no connector, which is the WORKDAY and
+   * CUSTOM case. Those are real boards this system deliberately cannot fetch (PLAN-v2
+   * phase 6 drops Workday), so creating a Company row for one would put a board into
+   * the daily pass that nothing knows how to read.
+   */
+  async adoptKnownBoard(input: {
+    slug: string;
+    atsType: AtsType;
+    token: string;
+    facts?: CompanyFacts;
+  }): Promise<boolean> {
+    const connector = CONNECTORS.find((c) => c.atsType === input.atsType);
+    if (!connector) {
+      this.logger.warn(
+        `${input.slug}: no connector for ${input.atsType} - skipped. A board this ` +
+          'system cannot fetch does not belong in the daily pass.',
+      );
+      return false;
+    }
+
+    await this.ensureCompany(
+      input.slug,
+      connector,
+      input.token,
+      input.facts,
+    );
+    return true;
+  }
+
+  /**
+   * One slug against one ATS, across every identifier form that ATS might use.
    *
    * Never throws. A probe is a question whose answer includes "it broke", and a
    * thrown error would end a sweep of hundreds of slugs on the first bad one.
+   *
+   * With more than one candidate the FIRST HIT wins and the rest are not tried. The
+   * recorded outcome is the hit if there was one, otherwise the last candidate's
+   * answer - a MISS on `Bosch` and a MISS on `bosch` are the same fact about the
+   * slug, and `company_probes` is keyed by slug rather than by token because the
+   * question it answers is "is this company on this ATS".
    */
   private async probeOne(
     slug: string,
+    connector: Connector,
+  ): Promise<ProbeOutcome> {
+    const candidates = connector.tokenCandidates?.(slug) ?? [slug];
+    let last: ProbeOutcome | undefined;
+
+    for (const token of candidates) {
+      const outcome = await this.probeToken(slug, token, connector);
+      if (outcome.result === ProbeResult.HIT) return outcome;
+      // A FORBIDDEN board exists but cannot be read, so trying another spelling of
+      // its name is asking a question that has already been answered.
+      if (outcome.result === ProbeResult.FORBIDDEN) return outcome;
+      last = outcome;
+    }
+
+    return last as ProbeOutcome;
+  }
+
+  /** One slug against one ATS under one specific identifier. */
+  private async probeToken(
+    slug: string,
+    token: string,
     connector: Connector,
   ): Promise<ProbeOutcome> {
     const base = {
@@ -120,13 +217,13 @@ export class CompanyProbeService {
 
     try {
       const body = await this.http.fetchJson<unknown>(
-        connector.listUrl(slug, 0),
-        `probe ${connector.source}/${slug}`,
+        connector.listUrl(token, 0),
+        `probe ${connector.source}/${token}`,
       );
 
       // The body test. A 200 has been received; whether a board exists is a separate
       // question that only the payload can answer.
-      const postings = connector.parse(body, slug);
+      const postings = connector.parse(body, token);
 
       if (postings.length > 0) {
         return {
@@ -135,6 +232,7 @@ export class CompanyProbeService {
           jobsFound: postings.length,
           result: ProbeResult.HIT,
           notes: null,
+          token,
         };
       }
 
@@ -197,13 +295,21 @@ export class CompanyProbeService {
 
   /** Writes the probe, validated by the same schema the API would use. */
   private async record(outcome: ProbeOutcome): Promise<void> {
+    // A hit under a different identifier records WHICH one, so the row explains
+    // itself later: `bosch` hit on SmartRecruiters is a puzzle, `bosch` hit as
+    // `BoschGroup` is an answer.
+    const notes =
+      outcome.token && outcome.token !== outcome.slug
+        ? `board token: ${outcome.token}`
+        : outcome.notes;
+
     const parsed = companyProbeInput.safeParse({
       slugTried: outcome.slug,
       atsType: outcome.atsType,
       result: outcome.result,
       httpStatus: outcome.httpStatus,
       jobsFound: outcome.jobsFound,
-      notes: outcome.notes,
+      notes,
     });
 
     if (!parsed.success) {
@@ -242,22 +348,54 @@ export class CompanyProbeService {
   /**
    * Creates the Company row for a hit, if it is not already there.
    *
-   * Tier is left UNKNOWN. It is the primary pay signal in this system and it is a
-   * human judgement about an employer - guessing it from a slug would put a made-up
-   * number into the one field the ranking leans on hardest.
+   * Tier comes from the curated list or is left UNKNOWN. It is never derived from the
+   * slug: tier is the primary pay signal in this system and a human judgement about
+   * an employer, so guessing it would put a made-up number into the one field the
+   * ranking leans on hardest. UNKNOWN ranks last, which is the honest position for a
+   * company nobody has classified.
    */
   private async ensureCompany(
     slug: string,
     connector: Connector,
+    token: string,
+    facts?: CompanyFacts,
   ): Promise<void> {
+    const name = facts?.name ?? slug.charAt(0).toUpperCase() + slug.slice(1);
+    const tier = facts?.tier ?? CompanyTier.UNKNOWN;
+
+    // Read before write, because the tier rule cannot be expressed in an upsert: the
+    // list may FILL an unclassified tier but must not overwrite one. A tier set by
+    // hand in the dashboard is a correction based on something real - an actual offer,
+    // a published range - and a sweep re-reading a months-old YAML file should not
+    // quietly undo it. Only the tier is protected this way; name and token are facts
+    // about the board that the list is the better authority on.
+    const existing = await this.prisma.company.findUnique({
+      where: { slug },
+      select: { tier: true },
+    });
+
+    const keepTier =
+      existing && existing.tier !== CompanyTier.UNKNOWN
+        ? existing.tier
+        : (facts?.tier ?? CompanyTier.UNKNOWN);
+
     await this.prisma.company.upsert({
       where: { slug },
-      update: { atsType: connector.atsType, atsToken: slug, active: true },
+      update: {
+        name,
+        atsType: connector.atsType,
+        atsToken: token,
+        active: true,
+        tier: keepTier,
+        ...(facts?.isAgency !== undefined ? { isAgency: facts.isAgency } : {}),
+      },
       create: {
-        name: slug.charAt(0).toUpperCase() + slug.slice(1),
+        name,
         slug,
         atsType: connector.atsType,
-        atsToken: slug,
+        atsToken: token,
+        tier,
+        isAgency: facts?.isAgency ?? tier === CompanyTier.T4_SERVICES_STAFFING,
       },
     });
   }

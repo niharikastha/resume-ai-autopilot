@@ -1,0 +1,632 @@
+# =============================================================================
+# THE COMPANY LIST
+# =============================================================================
+# PLAN-v2 change 1: this file is the bottleneck of the entire project.
+#
+# Four connectors already cover the market. The spike's 22 productive boards
+# yielded ~5 reachable roles each, so the output target of 8-12 applications a
+# day is a function of how many companies are on THIS LIST and almost nothing
+# else. Connector code is finished; the list is what scales.
+#
+# WHAT AN ENTRY IS
+#   `slug: Display Name`, where the slug is a GUESS at the company's board
+#   identifier - `boards.greenhouse.io/<slug>`, `jobs.lever.co/<slug>`. Blind
+#   guesses hit ~24% in the spike, which is high enough to be the primary
+#   list-growth technique. `companies:sweep` tries each slug against every
+#   connector and records the answer in `company_probes`, so a dead slug is
+#   never re-tried and a wrong guess costs one request, once.
+#
+#   A miss is therefore NOT a mistake in this file. Most of these entries will
+#   miss. The ones that hit are the point.
+#
+# TIER IS AN ESTIMATE, NOT A FACT
+#   Tier is the primary pay signal in this system, because the spike found
+#   structured salary on 2 of 699 India postings and both were junk. So these
+#   groupings do real work in the ranking - and they are starting estimates to
+#   correct as actual offers arrive, not researched figures. The bands from
+#   PLAN-v2 change 2:
+#
+#     T1  global company, India engineering office   ~Rs 25-50 LPA
+#     T2  well-funded Indian product startup         ~Rs 18-35 LPA
+#     T3  Indian mid-market product company          ~Rs 8-18 LPA
+#     T4  services / staffing / consultancy          ~Rs 6-12 LPA
+#
+#   Reclassify freely. A company in the wrong tier is ranked wrongly, which is
+#   a real cost, and the dashboard can correct one without editing this file -
+#   a tier set by hand there is never overwritten by a later sweep.
+#
+# THE OBJECT FORM
+#   Some boards cannot be guessed. SmartRecruiters ids are case-sensitive and
+#   often suffixed - Bosch's board is `BoschGroup`, and `bosch` returns a
+#   well-formed 200 with zero postings - so those entries state the ATS and
+#   token outright and skip probing entirely:
+#
+#     bosch:
+#       name: Bosch
+#       ats: SMARTRECRUITERS
+#       token: BoschGroup
+#
+# DELIBERATELY ABSENT
+#   Companies on Workday or an in-house ATS: Amazon, Google, Apple, Microsoft,
+#   Oracle, Adobe, Salesforce, Walmart, PayPal, SAP, Uber, TCS, Infosys, Wipro,
+#   Accenture. PLAN-v2 phase 6 drops Workday (per-tenant accounts, stateful
+#   multi-step flow) and there is no public JSON for the in-house ones, so a hit
+#   would produce postings nothing can prefill. Also absent: Keka, Zoho Recruit
+#   and Darwinbox tenants, for the reasons in PLAN-v2 change 3.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# T1 - GLOBAL COMPANIES WITH INDIAN ENGINEERING OFFICES
+# -----------------------------------------------------------------------------
+# PLAN-v2 change 4 calls this "the sleeper source": the highest-yield boards the
+# spike found were all here (Databricks 94 India postings, Stripe 40, Netskope
+# 19, Druva 17, Coinbase 15), all on connectors already built, all paying above
+# the target band. Zero new connector work. Seed it deliberately.
+t1_global_india_office:
+  # Confirmed live in the spike.
+  databricks: Databricks
+  stripe: Stripe
+  coinbase: Coinbase
+  netskope: Netskope
+  druva: Druva
+  openai: OpenAI
+  anthropic: Anthropic
+  figma: Figma
+  mixpanel: Mixpanel
+  plaid: Plaid
+  ramp: Ramp
+  brex: Brex
+  postman: Postman
+  atlan: Atlan
+  mindtickle: Mindtickle
+  hackerrank: HackerRank
+  observeai: Observe.AI
+  netradyne: Netradyne
+
+  # Data and infrastructure.
+  snowflake: Snowflake
+  confluent: Confluent
+  mongodb: MongoDB
+  elastic: Elastic
+  couchbase: Couchbase
+  redis: Redis
+  cockroachlabs: Cockroach Labs
+  neo4j: Neo4j
+  clickhouse: ClickHouse
+  timescale: Timescale
+  fivetran: Fivetran
+  dbtlabs: dbt Labs
+  airbyte: Airbyte
+  starburst: Starburst
+  dremio: Dremio
+  cloudera: Cloudera
+  informatica: Informatica
+  teradata: Teradata
+  alation: Alation
+  collibra: Collibra
+  thoughtspot: ThoughtSpot
+  sigmacomputing: Sigma Computing
+  rudderstack: RudderStack
+  hevodata: Hevo Data
+  prefect: Prefect
+  dagster: Dagster
+
+  # Developer tooling and platform.
+  atlassian: Atlassian
+  gitlab: GitLab
+  hashicorp: HashiCorp
+  cloudflare: Cloudflare
+  fastly: Fastly
+  digitalocean: DigitalOcean
+  vercel: Vercel
+  netlify: Netlify
+  temporal: Temporal Technologies
+  docker: Docker
+  circleci: CircleCI
+  harness: Harness
+  hasura: Hasura
+  sentry: Sentry
+  launchdarkly: LaunchDarkly
+  pagerduty: PagerDuty
+  datadog: Datadog
+  newrelic: New Relic
+  dynatrace: Dynatrace
+  grafana: Grafana Labs
+  sumologic: Sumo Logic
+  splunk: Splunk
+  cribl: Cribl
+  chronosphere: Chronosphere
+
+  # Security.
+  crowdstrike: CrowdStrike
+  zscaler: Zscaler
+  paloaltonetworks: Palo Alto Networks
+  fortinet: Fortinet
+  sentinelone: SentinelOne
+  tenable: Tenable
+  rapid7: Rapid7
+  qualys: Qualys
+  snyk: Snyk
+  wiz: Wiz
+  cyberark: CyberArk
+  okta: Okta
+  saviynt: Saviynt
+  securonix: Securonix
+  imperva: Imperva
+  varonis: Varonis
+  arcticwolf: Arctic Wolf
+  lacework: Lacework
+  traceable: Traceable
+  seclore: Seclore
+
+  # Storage, virtualisation, networking hardware.
+  nutanix: Nutanix
+  rubrik: Rubrik
+  cohesity: Cohesity
+  netapp: NetApp
+  purestorage: Pure Storage
+  veeam: Veeam
+  commvault: Commvault
+  arista: Arista Networks
+  juniper: Juniper Networks
+  f5: F5
+  extremenetworks: Extreme Networks
+  ciena: Ciena
+  akamai: Akamai
+  equinix: Equinix
+
+  # Silicon and engineering software - large India design centres.
+  amd: AMD
+  arm: Arm
+  marvell: Marvell
+  micron: Micron
+  analogdevices: Analog Devices
+  nxp: NXP Semiconductors
+  cadence: Cadence Design Systems
+  synopsys: Synopsys
+  ansys: Ansys
+  ptc: PTC
+  autodesk: Autodesk
+  mathworks: MathWorks
+  keysight: Keysight Technologies
+  bosch:
+    name: Bosch
+    ats: SMARTRECRUITERS
+    token: BoschGroup
+    note: >-
+      Highest-volume India board found anywhere - 543 postings behind
+      SmartRecruiters' native country=in filter. The id is unguessable, which
+      is why the ats/token form exists at all.
+
+  # SaaS and productivity.
+  box: Box
+  dropbox: Dropbox
+  docusign: DocuSign
+  smartsheet: Smartsheet
+  asana: Asana
+  notion: Notion
+  airtable: Airtable
+  miro: Miro
+  canva: Canva
+  zoom: Zoom
+  zendesk: Zendesk
+  intercom: Intercom
+  hubspot: HubSpot
+  amplitude: Amplitude
+  braze: Braze
+  klaviyo: Klaviyo
+  twilio: Twilio
+  sprinklr: Sprinklr
+  qualtrics: Qualtrics
+  medallia: Medallia
+  gong: Gong
+  outreach: Outreach
+  highspot: Highspot
+  seismic: Seismic
+  similarweb: Similarweb
+  semrush: Semrush
+  zapier: Zapier
+  workato: Workato
+  boomi: Boomi
+  uipath: UiPath
+  automationanywhere: Automation Anywhere
+  pegasystems: Pegasystems
+  servicenow: ServiceNow
+  nielsen: Nielsen
+
+  # Fintech and marketplaces.
+  block: Block
+  marqeta: Marqeta
+  affirm: Affirm
+  chime: Chime
+  robinhood: Robinhood
+  wise: Wise
+  revolut: Revolut
+  airwallex: Airwallex
+  adyen: Adyen
+  checkout: Checkout.com
+  gocardless: GoCardless
+  payoneer: Payoneer
+  remitly: Remitly
+  nium: Nium
+  doordash: DoorDash
+  instacart: Instacart
+  lyft: Lyft
+  pinterest: Pinterest
+  reddit: Reddit
+  discord: Discord
+  spotify: Spotify
+  wayfair: Wayfair
+  yelp: Yelp
+  expedia: Expedia
+  booking: Booking.com
+  agoda: Agoda
+  tripadvisor: Tripadvisor
+  grab: Grab
+
+  # HR, finance and vertical SaaS with India engineering.
+  deel: Deel
+  remotecom: Remote
+  rippling: Rippling
+  gusto: Gusto
+  navan: Navan
+  expensify: Expensify
+  avalara: Avalara
+  vertexinc: Vertex
+  athenahealth: athenahealth
+  veeva: Veeva Systems
+  cvent: Cvent
+  icertis: Icertis
+  highradius: HighRadius
+  innovaccer: Innovaccer
+  whatfix: Whatfix
+  amagi: Amagi
+  zenoti: Zenoti
+  uniphore: Uniphore
+  tekion: Tekion
+  talkdesk: Talkdesk
+  genesys: Genesys
+  five9: Five9
+  ringcentral: RingCentral
+  dialpad: Dialpad
+  vonage: Vonage
+  bandwidth: Bandwidth
+  plivo: Plivo
+  sinch: Sinch
+  gupshup: Gupshup
+  exotel: Exotel
+  unity: Unity
+  huggingface: Hugging Face
+  scaleai: Scale AI
+  weightsandbiases: Weights and Biases
+
+# -----------------------------------------------------------------------------
+# T2 - WELL-FUNDED INDIAN PRODUCT STARTUPS
+# -----------------------------------------------------------------------------
+# The category the spike confirmed is genuinely on Greenhouse/Lever/Ashby,
+# settling the pre-spike worry that these vendors were US-only.
+t2_funded_indian_startup:
+  # Confirmed live in the spike.
+  paytm: Paytm
+  meesho: Meesho
+  groww: Groww
+  navi: Navi
+  zeta: Zeta
+  epifi: Fi Money
+  slice: Slice
+  inmobi: InMobi
+  glance: Glance
+  sarvam: Sarvam AI
+  dozee: Dozee
+
+  # Fintech and lending.
+  razorpay: Razorpay
+  phonepe: PhonePe
+  cred: CRED
+  zerodha: Zerodha
+  upstox: Upstox
+  smallcase: smallcase
+  indmoney: INDmoney
+  jupiter: Jupiter
+  niyo: Niyo
+  moneyview: Money View
+  kreditbee: KreditBee
+  lendingkart: Lendingkart
+  axio: Axio
+  bharatpe: BharatPe
+  pinelabs: Pine Labs
+  cashfree: Cashfree Payments
+  juspay: Juspay
+  setu: Setu
+  m2pfintech: M2P Fintech
+  perfios: Perfios
+  signzy: Signzy
+  hyperverge: HyperVerge
+  idfy: IDfy
+  digio: Digio
+  rupeek: Rupeek
+  oxyzo: OXYZO
+  mintifi: Mintifi
+  progcap: Progcap
+  khatabook: Khatabook
+  jar: Jar
+  acko: ACKO
+  godigit: Digit Insurance
+  turtlemint: Turtlemint
+  insurancedekho: InsuranceDekho
+  policybazaar: Policybazaar
+  plumhq: Plum
+  onsurity: Onsurity
+
+  # Commerce, logistics and supply chain.
+  delhivery: Delhivery
+  xpressbees: XpressBees
+  shadowfax: Shadowfax
+  porter: Porter
+  blackbuck: BlackBuck
+  locus: Locus
+  fareye: FarEye
+  shiprocket: Shiprocket
+  unicommerce: Unicommerce
+  gokwik: GoKwik
+  zetwerk: Zetwerk
+  moglix: Moglix
+  inframarket: Infra.Market
+  ofbusiness: OfBusiness
+  udaan: udaan
+  jumbotail: Jumbotail
+  elasticrun: ElasticRun
+  dealshare: DealShare
+  zepto: Zepto
+  blinkit: Blinkit
+  swiggy: Swiggy
+  zomato: Zomato
+  licious: Licious
+  freshtohome: FreshToHome
+  countrydelight: Country Delight
+  rapido: Rapido
+  ola: Ola
+  oyo: OYO
+  makemytrip: MakeMyTrip
+  ixigo: ixigo
+  cleartrip: Cleartrip
+  easemytrip: EaseMyTrip
+  urbancompany: Urban Company
+  nobroker: NoBroker
+  squareyards: Square Yards
+  stanzaliving: Stanza Living
+
+  # Health.
+  practo: Practo
+  pristyncare: Pristyn Care
+  cultfit: cult.fit
+  healthifyme: HealthifyMe
+  mfine: MFine
+  tata1mg: Tata 1mg
+  pharmeasy: PharmEasy
+  medibuddy: MediBuddy
+  wysa: Wysa
+
+  # Education.
+  byjus: BYJU'S
+  unacademy: Unacademy
+  vedantu: Vedantu
+  physicswallah: Physics Wallah
+  upgrad: upGrad
+  scaler: Scaler
+  newtonschool: Newton School
+  codingninjas: Coding Ninjas
+  greatlearning: Great Learning
+  simplilearn: Simplilearn
+  emeritus: Emeritus
+  teachmint: Teachmint
+  classplus: Classplus
+  leadschool: LEAD School
+  cuemath: Cuemath
+  doubtnut: Doubtnut
+  embibe: Embibe
+  testbook: Testbook
+  adda247: Adda247
+
+  # SaaS, devtools and AI.
+  freshworks: Freshworks
+  chargebee: Chargebee
+  browserstack: BrowserStack
+  lambdatest: LambdaTest
+  testsigma: Testsigma
+  appsmith: Appsmith
+  moengage: MoEngage
+  clevertap: CleverTap
+  webengage: WebEngage
+  wingify: Wingify
+  netcore: Netcore Cloud
+  kaleyra: Kaleyra
+  leadsquared: LeadSquared
+  vymo: Vymo
+  capillarytech: Capillary Technologies
+  haptik: Haptik
+  yellowai: Yellow.ai
+  verloop: Verloop
+  krutrim: Krutrim
+  corover: CoRover
+  sprinto: Sprinto
+  scrut: Scrut Automation
+  zluri: Zluri
+  cloudsek: CloudSEK
+  safesecurity: Safe Security
+  fractal: Fractal Analytics
+  quantiphi: Quantiphi
+  tredence: Tredence
+  mathco: TheMathCompany
+  eightfold: Eightfold AI
+  springworks: Springworks
+  jodo: Jodo
+  recur: Recur Club
+  velocity: Velocity
+  grip: Grip Invest
+  wintwealth: Wint Wealth
+  stablemoney: Stable Money
+  cars24: CARS24
+  cardekho: CarDekho
+  spinny: Spinny
+  droom: Droom
+  parkplus: Park+
+  atomberg: Atomberg
+  ultraviolette: Ultraviolette
+  ather: Ather Energy
+  bounce: Bounce
+  euler: Euler Motors
+  battrixx: Battrixx
+
+# -----------------------------------------------------------------------------
+# T3 - INDIAN MID-MARKET PRODUCT COMPANIES
+# -----------------------------------------------------------------------------
+# PLAN-v2 calls this "the actual Rs 12-18 LPA band". It is also the hardest
+# category to seed: mid-market Indian product companies are less likely to be on
+# a hosted ATS at all, which is why this group is smaller than the ~100 the plan
+# hoped for rather than padded out to the number with guesses nobody stands
+# behind. It should grow as boards are found, not as names are invented.
+t3_indian_midmarket:
+  newgen: Newgen Software
+  nucleussoftware: Nucleus Software
+  intellectdesign: Intellect Design Arena
+  ramco: Ramco Systems
+  quickheal: Quick Heal
+  subex: Subex
+  tejasnetworks: Tejas Networks
+  sasken: Sasken
+  ittiam: Ittiam Systems
+  saankhya: Saankhya Labs
+  ideaforge: ideaForge
+  tonbo: Tonbo Imaging
+  rategain: RateGain
+  indiamart: IndiaMART
+  justdial: Justdial
+  infoedge: Info Edge
+  matrimony: Matrimony.com
+  nykaa: Nykaa
+  purplle: Purplle
+  honasa: Honasa Consumer
+  boat: boAt
+  noise: Noise
+  lenskart: Lenskart
+  caratlane: CaratLane
+  bluestone: BlueStone
+  melorra: Melorra
+  pepperfry: Pepperfry
+  wakefit: Wakefit
+  firstcry: FirstCry
+  bigbasket: BigBasket
+  mamaearth: Mamaearth
+  sugarcosmetics: SUGAR Cosmetics
+  wowskinscience: WOW Skin Science
+  beardo: Beardo
+  bombayshavingcompany: Bombay Shaving Company
+  chumbak: Chumbak
+  fabindia: FabIndia
+  bewakoof: Bewakoof
+  thesouledstore: The Souled Store
+  snitch: Snitch
+  rarerabbit: Rare Rabbit
+  aurigo: Aurigo
+  kissflow: Kissflow
+  servetel: Servetel
+  knowlarity: Knowlarity
+  ameyo: Ameyo
+  vahan: Vahan
+  betterplace: BetterPlace
+  zomentum: Zomentum
+  hippovideo: Hippo Video
+  aidash: AiDash
+  wobot: Wobot
+  detect: Detect Technologies
+  flutura: Flutura
+  gramener: Gramener
+  crayondata: Crayon Data
+  manthan: Manthan
+  indus: Indus OS
+  mobisy: Mobisy
+  bijak: Bijak
+  agrostar: AgroStar
+  ninjacart: Ninjacart
+  waycool: WayCool
+  absolute: Absolute
+  stellapps: Stellapps
+  cropin: CropIn
+  intello: Intello Labs
+  fasal: Fasal
+  arya: Arya.ag
+  jai: Jai Kisan
+  samunnati: Samunnati
+
+# -----------------------------------------------------------------------------
+# T4 - SERVICES AND STAFFING
+# -----------------------------------------------------------------------------
+# Kept and ranked LAST, per PLAN-v2 change 2. Two reasons to keep them at all:
+# they post constantly, and a services role is a real fallback. `isAgency` is
+# set on every company in this tier - tier is about pay, isAgency is about
+# whether the "employer" on the posting is the employer at all.
+t4_services_staffing:
+  # Confirmed live in the spike.
+  turing: Turing
+  andela: Andela
+  toptal: Toptal
+  thoughtworks: Thoughtworks
+  sigmoid: Sigmoid
+
+  # Global staffing.
+  roberthalf: Robert Half
+  insightglobal: Insight Global
+  randstad: Randstad
+  michaelpage: Michael Page
+  hays: Hays
+  adecco: Adecco
+  manpower: ManpowerGroup
+  kellyservices: Kelly Services
+  korferry: Korn Ferry
+  heidrick: Heidrick and Struggles
+  spencerstuart: Spencer Stuart
+  russellreynolds: Russell Reynolds
+
+  # Indian staffing and RPO.
+  teamlease: TeamLease
+  quesscorp: Quess Corp
+  abcconsultants: ABC Consultants
+  careernet: CareerNet
+  xpheno: Xpheno
+  taggd: Taggd
+  cielhr: CIEL HR
+  antal: Antal International
+
+  # IT services with product-shaped engineering roles.
+  epam: EPAM Systems
+  globallogic: GlobalLogic
+  luxoft: Luxoft
+  endava: Endava
+  softserve: SoftServe
+  griddynamics: Grid Dynamics
+  ltimindtree: LTIMindtree
+  mphasis: Mphasis
+  coforge: Coforge
+  persistent: Persistent Systems
+  hexaware: Hexaware
+  birlasoft: Birlasoft
+  zensar: Zensar
+  happiestminds: Happiest Minds
+  kpit: KPIT
+  cyient: Cyient
+  sonata: Sonata Software
+  mastek: Mastek
+  niit: NIIT
+  xoriant: Xoriant
+  apexon: Apexon
+  gslab: GS Lab
+  calsoft: Calsoft
+  prodapt: Prodapt
+  incedo: Incedo
+  tigeranalytics: Tiger Analytics
+  latentview: LatentView Analytics
+  affine: Affine
+  srijan: Srijan
+  tothenew: TO THE NEW
+  thoughtfocus: ThoughtFocus

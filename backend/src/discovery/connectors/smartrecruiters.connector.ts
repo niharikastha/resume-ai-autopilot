@@ -37,8 +37,30 @@ export class SmartRecruitersConnector implements Connector {
   listUrl(token: string, offset = 0): string {
     return (
       `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(token)}` +
-      `/postings?limit=${this.pageSize}&offset=${offset}`
+      // `country=in` is a NATIVE filter, and the only connector of the four that
+      // has one. It matters more here than anywhere else because of the detail
+      // step: without it, Bosch is ~3,000 postings and therefore ~3,000 detail
+      // requests to reach the 543 that are in India. Applied at the source, the
+      // same board costs a sixth of that. Remote-India roles are kept - they carry
+      // country IN - and remote-US roles are dropped, which is what the remote
+      // eligibility rule wants anyway.
+      `/postings?country=in&limit=${this.pageSize}&offset=${offset}`
     );
+  }
+
+  /**
+   * PascalCase first, then the raw slug.
+   *
+   * `bosch` -> `Bosch`, `paloaltonetworks` -> `Paloaltonetworks`. Only the first
+   * letter is raised: a multi-word slug's internal boundaries are not recoverable
+   * ("paloalto" could be "PaloAlto" or "Paloalto"), and guessing every split would
+   * multiply requests for a form the vendor may not use. Companies whose real id is
+   * unguessable - `BoschGroup` - carry an explicit token in the company list
+   * instead, which is what the `ats`/`token` fields on a list entry are for.
+   */
+  tokenCandidates(slug: string): string[] {
+    const pascal = slug.charAt(0).toUpperCase() + slug.slice(1);
+    return pascal === slug ? [slug] : [pascal, slug];
   }
 
   totalAvailable(body: unknown): number | null {
