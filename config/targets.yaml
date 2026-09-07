@@ -1,0 +1,342 @@
+# =============================================================================
+# WHAT COUNTS AS A JOB WORTH APPLYING TO
+# =============================================================================
+# PLAN-v2 phase 3 step 4. This file is stage 1 of the matching funnel: the free,
+# deterministic pass that runs before any embedding is compared or any token is
+# spent. Everything here is a HARD rule, evaluated with no model involved.
+#
+# The division of labour matters. Stage 1 answers "could this person take this
+# job at all" - the questions with objective answers, where a model would add
+# cost and doubt to something a string comparison settles. Stage 3 answers "is
+# this a good fit", which genuinely needs judgement. Anything ambiguous belongs
+# in stage 3, not here: a dealbreaker that fires on a good role is invisible,
+# because a rejected posting produces no output to notice.
+#
+# Tuning: every stage logs its survivor count. Real volume is ~3-6 relevant new
+# roles a day (PLAN-v2 change 1 - the v1 estimate of 800/day was wrong by two
+# orders of magnitude), so if stage 1 is rejecting most of what discovery finds,
+# the rules here are too tight rather than the pool being bad.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# TITLES
+# -----------------------------------------------------------------------------
+# Matched against the NORMALIZED title - lower case, punctuation stripped - so
+# write these in lower case and do not worry about "Sr." versus "Sr".
+titles:
+  # A posting must match at least one. Substring matches, so "engineer" covers
+  # "software engineer", "backend engineer" and "engineer, platform".
+  include:
+    - software engineer
+    - software developer
+    - backend engineer
+    - backend developer
+    - full stack engineer
+    - full stack developer
+    - fullstack engineer
+    - fullstack developer
+    # Added after running the funnel against the real 4802-posting corpus, which is
+    # the only way a gap in this list is visible - a missing include term rejects
+    # silently and looks like a quiet market. These were live India-located roles the
+    # list was dropping: "Frontend Engineer, Vision", "Senior Frontend Engineer",
+    # "AI Agent Engineer", "Agent Engineer". Both spellings of front-end are here
+    # because normalizeTitle turns the hyphen into a space, so "Front-End" arrives as
+    # "front end" and would not match "frontend".
+    - frontend engineer
+    - frontend developer
+    - front end engineer
+    - front end developer
+    - agent engineer
+    - node js developer
+    - nodejs developer
+    - node developer
+    - javascript developer
+    - typescript developer
+    - python developer
+    - api engineer
+    - api developer
+    - platform engineer
+    - product engineer
+    - application developer
+    - web developer
+    - sde
+    - software development engineer
+    - member of technical staff
+    - ai engineer
+    - ml engineer
+    - machine learning engineer
+    - llm engineer
+    - genai engineer
+    - generative ai engineer
+    - applied ai engineer
+    - ai developer
+    - rag engineer
+    - forward deployed engineer
+
+  # Rejected outright, even if an include matched. These are not "worse jobs" -
+  # they are jobs a 2024 graduate with ~2 years cannot be hired into, and a
+  # tailored resume sent to one is a wasted application on both sides.
+  exclude:
+    - intern
+    - internship
+    - trainee
+    - apprentice
+    - staff engineer
+    - staff software
+    # Bare "staff" is unusable here, and the reason is worth stating: it would
+    # also match "member of technical staff", which is an INCLUDE term and is
+    # the standard IC title at funded Indian startups - MTS-1 / MTS-2 is exactly
+    # where a two-year engineer sits. Exclude wins over include, so one bare
+    # term would silently delete a whole tier of the right jobs. Hence the
+    # "Staff <X>" forms are enumerated against the include list above instead.
+    - staff backend
+    - staff frontend
+    - staff full stack
+    - staff fullstack
+    - staff platform
+    - staff product engineer
+    - staff application
+    - staff web
+    - staff api
+    - staff python
+    - staff javascript
+    - staff typescript
+    - staff node
+    - staff ai
+    - staff ml
+    - staff machine learning
+    - staff llm
+    - staff genai
+    - principal
+    - architect
+    - head of
+    - director
+    - vp
+    - vice president
+    - manager
+    - management
+    - lead engineer
+    - engineering lead
+    - tech lead
+    - team lead
+    - distinguished
+    - fellow
+    # Adjacent disciplines that share the word "engineer" but are a different job.
+    - sales engineer
+    - solutions engineer
+    - solution engineer
+    - support engineer
+    - customer engineer
+    - field engineer
+    - qa engineer
+    - test engineer
+    - sdet
+    - automation engineer
+    - devops engineer
+    - site reliability
+    - sre
+    - security engineer
+    - network engineer
+    - hardware engineer
+    - firmware engineer
+    - embedded engineer
+    - mechanical engineer
+    - civil engineer
+    - electrical engineer
+    - chemical engineer
+    - process engineer
+    - production engineer
+    - manufacturing
+    - validation engineer
+    - verification engineer
+    - design verification
+    - analog
+    - vlsi
+    - rtl
+    - physical design
+    - data engineer
+    - data scientist
+    - data analyst
+    - business analyst
+    - android developer
+    - ios developer
+    - mobile developer
+    - flutter developer
+    - unity developer
+    - game developer
+    - salesforce developer
+    - sap
+    - abap
+    - dotnet
+    - net developer
+    - java developer
+    - golang developer
+    - rust developer
+    - php developer
+    - drupal
+    - wordpress
+    - sharepoint
+    - servicenow developer
+    - mainframe
+    - cobol
+    - oracle developer
+    - pl sql
+    - etl developer
+    - power bi
+    - tableau
+
+# -----------------------------------------------------------------------------
+# SENIORITY AND EXPERIENCE
+# -----------------------------------------------------------------------------
+seniority:
+  # `seniority()` in normalize.ts derives one of these from the title.
+  allow:
+    - junior
+    - mid
+    - senior
+  # A senior title is KEPT. PLAN-v2's caveat on the spike numbers is explicit
+  # that the title-keyword seniority filter cut genuinely reachable "Senior"
+  # roles, and dropping the whole band took the working pool from 115 to 69 -
+  # a 40% cut to reach for a word that Indian employers apply to a 3-year
+  # engineer as often as to a 10-year one. Stage 3 reads the actual requirement
+  # from the description, which is where that judgement belongs.
+
+experience:
+  # Years. A posting whose stated minimum is above `maxYears` is rejected;
+  # a posting that states no requirement always passes.
+  minYears: 0
+  maxYears: 6
+  # Roughly 2 years as of 2026-09. Update this, or accept that the window above
+  # is doing the work on its own.
+  candidateYears: 2
+
+# -----------------------------------------------------------------------------
+# LOCATION
+# -----------------------------------------------------------------------------
+locations:
+  # Substring matched against the posting's location, case-insensitively.
+  # Bhubaneswar is home; the other three are where the roles are.
+  allow:
+    - bhubaneswar
+    - bengaluru
+    - bangalore
+    - hyderabad
+    - pune
+    - remote india
+    - india
+  # REMOTE ELIGIBILITY, not the remote flag. PLAN-v2 change to 1c: the spike
+  # found 509 postings tagged remote that were not India-eligible. "Remote - US"
+  # is a job that cannot be taken, and treating any "remote" string as a match
+  # is how the pool fills with them. `remoteType()` resolves this before the
+  # comparison, so REMOTE_OTHER never reaches here.
+  allowRemoteIndia: true
+  # A role that is remote with no country stated. Kept, because Indian postings
+  # routinely say only "Remote", and stage 3 can read the description for a
+  # timezone or work-authorisation requirement.
+  allowRemoteUnspecified: true
+
+# -----------------------------------------------------------------------------
+# CONTENT RULES
+# -----------------------------------------------------------------------------
+keywords:
+  # At least one must appear in the title or description. This is the loosest
+  # rule in the file on purpose - it is a sanity check that the posting is about
+  # software, not a scoring signal. Scoring is stage 3's job.
+  mustHaveAny:
+    - javascript
+    - typescript
+    - node
+    - nest
+    - express
+    - react
+    - next.js
+    - angular
+    - python
+    - api
+    - backend
+    - full stack
+    - fullstack
+    - microservice
+    - rest
+    - graphql
+    - postgres
+    - postgresql
+    - mongodb
+    - sql
+    - llm
+    - rag
+    - genai
+    - generative ai
+    - openai
+    - anthropic
+    - langchain
+    - vector database
+    - embedding
+    - machine learning
+
+  # Present anywhere in the posting and it is rejected. Kept SHORT and
+  # unambiguous, because a dealbreaker is a silent rejection - nothing surfaces
+  # a job that was thrown away here. Anything requiring interpretation belongs
+  # in stage 3, where it becomes a low score with a stated reason instead.
+  dealbreakers:
+    - unpaid
+    - no stipend
+    - commission only
+    - equity only
+    - training fee
+    - registration fee
+    - security deposit
+    - pay to apply
+    - bond of
+    - service agreement bond
+    - night shift only
+    - us citizenship required
+    - must be us citizen
+    - security clearance
+    - active clearance
+    - relocation to us required
+
+# -----------------------------------------------------------------------------
+# FRESHNESS AND VOLUME
+# -----------------------------------------------------------------------------
+freshness:
+  # Postings older than this are not applied to - the role is usually filled or
+  # the pipeline is full. Generous because Indian postings stay open 4-6 weeks
+  # (PLAN-v2's own note on why 115 live roles is ~3 new ones a day).
+  maxAgeDays: 45
+  # A posting with no date. Kept: several connectors simply do not report one,
+  # and rejecting them would drop whole boards for a missing field.
+  allowUnknownAge: true
+
+limits:
+  # The hard cap from PLAN-v2 phase 3. Enforced in the pipeline, not here, but
+  # stated here because this is the file a human edits.
+  maxApplicationsPerDay: 15
+  # Applications to one company inside this window. Applying to four roles at
+  # the same employer on the same morning reads as spray-and-pray to a recruiter
+  # looking at one inbox.
+  perCompanyCooldownDays: 14
+
+# -----------------------------------------------------------------------------
+# PAY
+# -----------------------------------------------------------------------------
+pay:
+  # A SOFT preference, and PLAN-v2 change 2 is the reason it cannot be more.
+  # Structured salary appears on 0.3% of India postings and both instances the
+  # spike found were junk, so a floor applied to an absent field would reject
+  # essentially everything. The rule that follows from that:
+  #
+  #   - a STATED salary below the floor rejects       (real data, trust it)
+  #   - an LLM ESTIMATE below the floor does not      (a guess, ~99.7% of cases)
+  #   - unknown pay passes through                    (the normal case)
+  #
+  # Ranking by Company.tier is what actually sorts on pay.
+  floorLPA: 12
+  # Ranked in this order, best first. UNKNOWN sorts last, which is the honest
+  # position for a company nobody has classified rather than a penalty.
+  tierPreference:
+    - T1_GLOBAL_INDIA_OFFICE
+    - T2_FUNDED_INDIAN_STARTUP
+    - T3_INDIAN_MIDMARKET
+    - T4_SERVICES_STAFFING
+    - UNKNOWN
