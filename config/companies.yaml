@@ -300,6 +300,165 @@ t1_global_india_office:
   scaleai: Scale AI
   weightsandbiases: Weights and Biases
 
+  # ---------------------------------------------------------------------------
+  # ADDED 2026-09-07, to close the gap this file names as the project's
+  # bottleneck: the first sweep of 499 slugs produced 142 boards, against phase
+  # 1's exit criterion of 400+. At the measured ~28% per name, reaching it takes
+  # roughly 1400 names, so this block is the next instalment rather than the
+  # whole remainder.
+  #
+  # These are the long tail. The obvious names were already here, so expect a
+  # LOWER hit rate than 28% from this block - the companies are real and the
+  # slugs are guesses at their board identifier, which is exactly the bargain
+  # the header at the top of this file describes.
+  # ---------------------------------------------------------------------------
+
+  # Data and analytics platforms - the category the spike found most reliably on
+  # Greenhouse, and all of these run engineering out of Bengaluru or Hyderabad.
+  supabase: Supabase
+  planetscale: PlanetScale
+  neon: Neon
+  yugabyte: Yugabyte
+  singlestore: SingleStore
+  materialize: Materialize
+  redpanda: Redpanda
+  imply: Imply
+  streamnative: StreamNative
+  metabase: Metabase
+  preset: Preset
+  hex: Hex
+  astronomer: Astronomer
+  montecarlodata: Monte Carlo
+  hightouch: Hightouch
+  census: Census
+  matillion: Matillion
+  snaplogic: SnapLogic
+  celigo: Celigo
+  jitterbit: Jitterbit
+  dataiku: Dataiku
+  datarobot: DataRobot
+  h2oai: H2O.ai
+  alteryx: Alteryx
+  domo: Domo
+  sisense: Sisense
+
+  # AI infrastructure and tooling. A young category, so a higher share of these
+  # will miss - they are here because the ones that hit post heavily in India.
+  cohere: Cohere
+  perplexity: Perplexity AI
+  together: Together AI
+  pinecone: Pinecone
+  weaviate: Weaviate
+  qdrant: Qdrant
+  zilliz: Zilliz
+  lightning: Lightning AI
+  comet: Comet
+  arize: Arize AI
+  fiddler: Fiddler AI
+  labelbox: Labelbox
+  snorkel: Snorkel AI
+  encord: Encord
+
+  # Security. The single largest T1 group already, and these are the gaps -
+  # every one of them has an India SOC or engineering team.
+  orca: Orca Security
+  aqua: Aqua Security
+  sysdig: Sysdig
+  jfrog: JFrog
+  checkmarx: Checkmarx
+  veracode: Veracode
+  sonarsource: SonarSource
+  semgrep: Semgrep
+  chainguard: Chainguard
+  tailscale: Tailscale
+  teleport: Teleport
+  onepassword: 1Password
+  bigid: BigID
+  onetrust: OneTrust
+  securiti: Securiti.ai
+  drata: Drata
+  vanta: Vanta
+  abnormal: Abnormal Security
+  proofpoint: Proofpoint
+  mimecast: Mimecast
+  barracuda: Barracuda
+  sophos: Sophos
+  trellix: Trellix
+  tanium: Tanium
+  jamf: Jamf
+  ivanti: Ivanti
+  ninjaone: NinjaOne
+
+  # Payments and fintech infrastructure, which staff India heavily for the same
+  # reason the Indian fintechs do - the engineering talent is here.
+  thunes: Thunes
+  rapyd: Rapyd
+  dlocal: dLocal
+  mollie: Mollie
+  sumup: SumUp
+  toast: Toast
+  upgrade: Upgrade
+  sofi: SoFi
+  addepar: Addepar
+  carta: Carta
+  mercury: Mercury
+  bill: BILL
+
+  # Developer platforms, observability and content infrastructure.
+  honeycomb: Honeycomb
+  rootly: Rootly
+  split: Split
+  optimizely: Optimizely
+  statsig: Statsig
+  heap: Heap
+  fullstory: FullStory
+  contentsquare: Contentsquare
+  pendo: Pendo
+  walkme: WalkMe
+  camunda: Camunda
+  n8n: n8n
+  tray: Tray
+  contentful: Contentful
+  contentstack: Contentstack
+  sanity: Sanity
+  strapi: Strapi
+  storyblok: Storyblok
+  webflow: Webflow
+  framer: Framer
+  render: Render
+  commercetools: commercetools
+  vtex: VTEX
+  bigcommerce: BigCommerce
+
+  # Communications, support and go-to-market SaaS.
+  messagebird: MessageBird
+  infobip: Infobip
+  telnyx: Telnyx
+  gorgias: Gorgias
+  front: Front
+  salesloft: Salesloft
+  clari: Clari
+  apollo: Apollo.io
+  zoominfo: ZoomInfo
+  lusha: Lusha
+  sixsense: 6sense
+  demandbase: Demandbase
+  iterable: Iterable
+  customerio: Customer.io
+  onesignal: OneSignal
+  mparticle: mParticle
+  tealium: Tealium
+  insider: Insider
+  monday: monday.com
+  clickup: ClickUp
+  wrike: Wrike
+  coda: Coda
+  linear: Linear
+  appian: Appian
+  phenom: Phenom People
+  codesignal: CodeSignal
+  hackerearth: HackerEarth
+
 # -----------------------------------------------------------------------------
 # T2 - WELL-FUNDED INDIAN PRODUCT STARTUPS
 # -----------------------------------------------------------------------------
@@ -477,6 +636,194 @@ t2_funded_indian_startup:
   bounce: Bounce
   euler: Euler Motors
   battrixx: Battrixx
+
+  # ---------------------------------------------------------------------------
+  # ADDED 2026-09-07, to close the gap this file names as the project's
+  # bottleneck: the first sweep of 499 slugs produced 142 boards, against phase
+  # 1's exit criterion of 400+. At the measured ~28% per name, reaching it takes
+  # roughly 1400 names, so this block is the next instalment rather than the
+  # whole remainder.
+  #
+  # These are the long tail. The obvious names were already here, so expect a
+  # LOWER hit rate than 28% from this block - the companies are real and the
+  # slugs are guesses at their board identifier, which is exactly the bargain
+  # the header at the top of this file describes.
+  # ---------------------------------------------------------------------------
+
+  # Consumer internet and content, the category with the most India-located
+  # engineering roles per company.
+  sharechat: ShareChat
+  dailyhunt: Dailyhunt
+  dunzo: Dunzo
+  inshorts: Inshorts
+  pratilipi: Pratilipi
+  kukufm: Kuku FM
+  pocketfm: Pocket FM
+  chingari: Chingari
+  bobbleai: Bobble AI
+  winzo: WinZO
+  mpl: Mobile Premier League
+  dream11: Dream11
+  nazara: Nazara Technologies
+  zupee: Zupee
+  rooter: Rooter
+  fancode: FanCode
+
+  # Fintech and lending - the deepest Indian startup category and the one whose
+  # pay bands actually reach the T2 estimate.
+  mobikwik: MobiKwik
+  instamojo: Instamojo
+  decentro: Decentro
+  zwitch: Zwitch
+  fampay: FamPay
+  dezerv: Dezerv
+  sensibull: Sensibull
+  angelone: Angel One
+  kuvera: Kuvera
+  scripbox: Scripbox
+  indiagold: indiagold
+  rupifi: Rupifi
+  flexiloans: FlexiLoans
+  indifi: Indifi
+  zestmoney: ZestMoney
+  moneytap: MoneyTap
+  creditmantri: CreditMantri
+  payu: PayU
+  billdesk: BillDesk
+  easebuzz: Easebuzz
+  freo: Freo
+  kissht: Kissht
+  karza: Karza Technologies
+  credgenics: Credgenics
+  leegality: Leegality
+  signdesk: SignDesk
+  bureau: Bureau
+
+  # Home, living and D2C retail.
+  livspace: Livspace
+  homelane: HomeLane
+  designcafe: Design Cafe
+  furlenco: Furlenco
+  rentomojo: RentoMojo
+  nestaway: NestAway
+  zolostays: Zolo
+  cityfurnish: CityFurnish
+  arzooo: Arzooo
+  libas: Libas
+  damensch: DaMENSCH
+  xyxx: XYXX
+  zouk: Zouk
+  mokobara: Mokobara
+  nashermiles: Nasher Miles
+  boultaudio: Boult
+  mcaffeine: mCaffeine
+  minimalist: Minimalist
+  dotandkey: Dot & Key
+  pilgrim: Pilgrim
+  earthrhythm: Earth Rhythm
+  ustraa: Ustraa
+  manmatters: Man Matters
+  traya: Traya
+  nua: Nua
+  sleepycat: Sleepy Owl
+  thewholetruth: The Whole Truth
+  yogabar: Yoga Bar
+  epigamia: Epigamia
+  idfresh: iD Fresh Food
+  zappfresh: Zappfresh
+  slurrpfarm: Slurrp Farm
+
+  # Healthtech.
+  redcliffelabs: Redcliffe Labs
+  tricog: Tricog Health
+  sigtuple: SigTuple
+  qureai: Qure.ai
+  niramai: Niramai
+  predible: Predible Health
+  healthplix: HealthPlix
+  ekacare: Eka Care
+  phable: Phable
+  loophealth: Loop Health
+  evenhealthcare: Even Healthcare
+  kenko: Kenko Health
+  alyvehealth: Alyve Health
+  pazcare: Pazcare
+
+  # Edtech and hiring platforms.
+  masaischool: Masai School
+  almabetter: AlmaBetter
+  crio: Crio
+  geeksforgeeks: GeeksforGeeks
+  pesto: Pesto Tech
+  filo: Filo
+  toddleapp: Toddle
+  winuall: Winuall
+  graphy: Graphy
+  unstop: Unstop
+  internshala: Internshala
+  apna: Apna
+  workindia: WorkIndia
+
+  # SaaS and developer tools built in India. The strongest single argument for
+  # this whole list: these hire backend engineers almost exclusively.
+  devrev: DevRev
+  signoz: SigNoz
+  keploy: Keploy
+  last9: Last9
+  tooljet: ToolJet
+  refyne: Refyne
+  chaosgenius: Chaos Genius
+  castled: Castled Data
+  rocketlane: Rocketlane
+  peoplebox: Peoplebox
+  kula: Kula
+  nocodb: NocoDB
+  frappe: Frappe
+  syncfusion: Syncfusion
+  kylas: Kylas
+  vtiger: Vtiger
+  wooqer: Wooqer
+  fyle: Fyle
+  happay: Happay
+  squadcast: Squadcast
+  greythr: greytHR
+  knit: Knit
+  ozonetel: Ozonetel
+  msg91: MSG91
+  interakt: Interakt
+  wati: Wati
+  limechat: LimeChat
+  senseforth: Senseforth
+  rezoai: Rezo.ai
+  avaamo: Avaamo
+  gnani: Gnani.ai
+  skitai: Skit.ai
+  madstreetden: Mad Street Den
+
+  # Agritech, logistics and B2B commerce.
+  dehaat: DeHaat
+  jaikisan: Jai Kisan
+  gramophone: Gramophone
+  bighaat: BigHaat
+  otipy: Otipy
+  ecomexpress: Ecom Express
+  loadshare: LoadShare
+  blowhorn: Blowhorn
+  rivigo: Rivigo
+  shipsy: Shipsy
+  pickrr: Pickrr
+  clickpost: ClickPost
+  letstransport: LetsTransport
+  metalbook: Metalbook
+  bijnis: Bijnis
+
+  # Electric mobility and energy, which staff embedded and backend roles alike.
+  simpleenergy: Simple Energy
+  river: River
+  yulu: Yulu
+  log9: Log9 Materials
+  exponent: Exponent Energy
+  statiq: Statiq
 
 # -----------------------------------------------------------------------------
 # T3 - INDIAN MID-MARKET PRODUCT COMPANIES
