@@ -1,0 +1,33 @@
+-- Which provider and model produced a tailored variant.
+--
+-- Nullable because rows predating this column exist, and backfilling them would
+-- mean inventing a provenance for a variant nobody recorded one for.
+ALTER TABLE "resume_variants" ADD COLUMN "llmProvider" TEXT,
+                              ADD COLUMN "model" TEXT;
+
+-- ---------------------------------------------------------------------------
+-- WHAT WAS REMOVED FROM THIS FILE, AND WHY IT WILL COME BACK
+-- ---------------------------------------------------------------------------
+-- `prisma migrate dev --create-only` generated two extra statements here:
+--
+--   DROP INDEX "job_postings_embedding_hnsw_idx";
+--   DROP INDEX "profile_atoms_embedding_hnsw_idx";
+--
+-- Both were deleted by hand. They are not a change anyone asked for - they are
+-- Prisma reporting drift it cannot help seeing. The two indexes are HNSW indexes
+-- on `embedding`, which is declared Unsupported("vector(384)"), so the column is
+-- invisible to the Prisma schema and every index on it looks to the differ like an
+-- index that exists in the database and is declared nowhere. Its remedy for that
+-- is to drop it.
+--
+-- Declaring them in schema.prisma is not available: Prisma 7.10 rejects
+-- `type: Hnsw` with "Unknown index type". So there is no way to make the differ
+-- stop, which means:
+--
+--   EVERY FUTURE `migrate dev` WILL EMIT THESE TWO DROPS AGAIN. Delete them from
+--   the generated file before applying it. Applying one silently removes the ANN
+--   index behind whole-table semantic search - nothing errors, queries just fall
+--   back to a sequential scan and get slower as the table grows.
+--
+-- The CHECK constraint from the previous migration is safe by contrast; Prisma
+-- does not manage check constraints and leaves it alone.

@@ -21,6 +21,12 @@ next-env.d.ts
 /artifacts/
 /backend/prisma/generated/
 
+# Tailored resumes (phase 5, RESUME_OUTPUT_DIR). NOT anchored to the repo root,
+# because the default is relative to the process cwd and the cli/worker run from
+# backend/ - an anchored rule would miss backend/.artifacts entirely. Every file
+# in here carries the candidate's real name, phone number and email.
+.artifacts/
+
 # Playwright's persistent browser profile for the submit session (phase 6).
 # Contains live login cookies for job sites - must never be committed.
 /.browser-profile/
@@ -30,3 +36,6 @@ next-env.d.ts
 
 # Local pre-migration database dumps. Real candidate data, and large.
 .backups/
+
+# Local embedding model weights (~130MB, re-downloadable)
+.models/

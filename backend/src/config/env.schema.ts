@@ -35,6 +35,20 @@ export const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(),
 
+  /**
+   * Phase 5. Where tailored resumes are written.
+   *
+   * Relative paths resolve against the process cwd, which for `npm run cli` is
+   * `backend/`. Defaulted rather than required because a missing output directory
+   * should not stop the app booting, and because this is the kind of value that is
+   * only ever set on the server.
+   *
+   * NOT under `backend/src`: these are generated artifacts containing the
+   * candidate's real contact details, and the default therefore sits somewhere
+   * .gitignore already covers.
+   */
+  RESUME_OUTPUT_DIR: blank(z.string().default('.artifacts/resumes')),
+
   // Phase 7.
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),

@@ -8,6 +8,15 @@
 //    is 384 because embeddings come from local bge-small-en-v1.5, chosen so
 //    there is no second paid API (PLAN.txt constraint 2).
 //
+//    CONSEQUENCE WHEN YOU RUN `migrate dev`: the HNSW indexes on those columns
+//    are invisible to Prisma too, so the differ sees an index that exists in the
+//    database and is declared nowhere, and helpfully emits
+//    `DROP INDEX "job_postings_embedding_hnsw_idx"` (and the profile_atoms one)
+//    into your new migration. DELETE THOSE LINES before applying. Prisma 7.10
+//    rejects `type: Hnsw` in the schema, so the indexes cannot be declared here
+//    and the differ cannot be quietened. Applying the drop breaks nothing
+//    loudly - semantic search just degrades to a sequential scan.
+//
 // 2. TENANT-ABSENCE. CompanyProbe exists because Keka, Zoho Recruit and
 //    Darwinbox all return HTTP 200 for companies that do not exist. Probe
 //    results must be remembered so a dead slug is never retried, and so a
@@ -541,6 +550,19 @@ model JobPosting {
   contentHash String
   embedding   Unsupported("vector(384)")?
 
+  /// The `contentHash` this row's `embedding` was computed from.
+  ///
+  /// Without it a stale vector is undetectable. The discovery upsert overwrites
+  /// `descriptionText` and `contentHash` when an employer edits a posting, and it
+  /// CANNOT touch `embedding` - Prisma has no type for that column, so it is not in
+  /// the update payload at all. The result would be a vector describing the old
+  /// description, still matching, forever, with nothing to compare it against.
+  ///
+  /// So stage 2 re-embeds when this differs from `contentHash`, and the CHECK
+  /// constraint on the table makes "has a vector but no hash" unrepresentable -
+  /// which is the state a raw-SQL write that forgot this column would create.
+  embeddedContentHash String?
+
   firstSeenAt DateTime @default(now())
   lastSeenAt  DateTime @updatedAt
   closedAt    DateTime?
@@ -630,6 +652,18 @@ model ResumeVariant {
   /// drifting, and that is only visible if passes are recorded too.
   provenanceReport Json
   guardPassed      Boolean
+
+  /// Which provider and model produced this variant, for the same reason
+  /// MatchScore records them - a quality regression has to be traceable to one.
+  /// It matters more here than for scoring: `guardPassed` above is the drift
+  /// signal PLAN asks the digest to report, and a rising failure rate is not
+  /// interpretable without knowing which model the rate belongs to. Two
+  /// environments running different providers would otherwise average into one
+  /// meaningless number.
+  ///
+  /// Nullable because rows predating this column exist.
+  llmProvider String?
+  model       String?
 
   createdAt DateTime @default(now())
 
