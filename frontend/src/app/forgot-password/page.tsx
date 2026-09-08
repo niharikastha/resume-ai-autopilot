@@ -1,5 +1,6 @@
 'use client';
 
+import { Mail } from 'lucide-react';
 import { useState } from 'react';
 import {
   AuthCard,
@@ -62,6 +63,7 @@ export default function ForgotPasswordPage() {
 
           <Field
             label="Email"
+            icon={Mail}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}

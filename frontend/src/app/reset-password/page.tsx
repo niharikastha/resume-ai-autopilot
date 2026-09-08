@@ -1,5 +1,6 @@
 'use client';
 
+import { Lock } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import {
@@ -122,6 +123,7 @@ function ResetPasswordForm() {
 
         <PasswordField
           label="New password"
+          icon={Lock}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"

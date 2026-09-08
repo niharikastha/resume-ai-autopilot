@@ -1,6 +1,6 @@
 'use client';
 
-import { Clock3 } from 'lucide-react';
+import { Clock3, Lock, Mail } from 'lucide-react';
 import { useState } from 'react';
 import {
   AuthCard,
@@ -107,6 +107,7 @@ export default function SignupPage() {
 
         <Field
           label="Email"
+          icon={Mail}
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -118,6 +119,7 @@ export default function SignupPage() {
 
         <PasswordField
           label="Password"
+          icon={Lock}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"

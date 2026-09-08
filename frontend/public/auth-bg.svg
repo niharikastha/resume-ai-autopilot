@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The artwork behind the auth pages' brand panel.
+
+  A COMMITTED SVG rather than a photograph, and rather than more CSS gradients.
+  A photograph would be a licensing question, a few hundred kilobytes, and a
+  fight with the text sitting on top of it; this is 4KB, scales to any panel
+  size without artefacts, and its darkest region is where the copy goes. It is
+  also the only way to get PROPERLY blurred colour - a CSS radial-gradient has
+  hard mathematical falloff, whereas feGaussianBlur over a soft shape is what
+  actually reads as light in a room.
+
+  Drawn portrait (3:4) because the panel is a tall column. The consuming CSS
+  sets background-size: cover, so the aspect ratio only decides what gets
+  cropped, and the composition keeps its interest in the middle band that
+  survives any crop.
+
+  Colours are LITERAL HEXES, matching BrandPanel's own note: this panel is
+  night-time in both light and dark theme, so it cannot reference the cyan and
+  violet accent tokens, which go deep and muted in light mode. An SVG file
+  cannot see the page's custom properties anyway - a background-image is a
+  separate document with its own style scope.
+
+  (Written without a doubled hyphen anywhere, because XML forbids one inside a
+  comment. Spelling the token names out cost an afternoon's confusion once.)
+
+    #35e0d8  the cyan accent
+    #a78bfa  the violet accent
+    #c6ff3d  lime, the brand
+    #08090d  the panel's base, one step below the app canvas
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1200 1600"
+  preserveAspectRatio="xMidYMid slice"
+  width="1200"
+  height="1600"
+>
+  <defs>
+    <!-- Each light source fades to fully transparent at its own edge, so the
+         blobs blend into the base instead of stacking into a bright wash. -->
+    <radialGradient id="teal">
+      <stop offset="0" stop-color="#35e0d8" stop-opacity="0.55" />
+      <stop offset="0.55" stop-color="#35e0d8" stop-opacity="0.16" />
+      <stop offset="1" stop-color="#35e0d8" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="violet">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.5" />
+      <stop offset="0.55" stop-color="#a78bfa" stop-opacity="0.15" />
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="lime">
+      <stop offset="0" stop-color="#c6ff3d" stop-opacity="0.32" />
+      <stop offset="0.6" stop-color="#c6ff3d" stop-opacity="0.08" />
+      <stop offset="1" stop-color="#c6ff3d" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="indigo">
+      <stop offset="0" stop-color="#4f6bff" stop-opacity="0.3" />
+      <stop offset="1" stop-color="#4f6bff" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- The blur is what stops these reading as four coloured circles. Applied
+         to the group, not per shape, so where two overlap they blur together. -->
+    <filter id="soften" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="70" />
+    </filter>
+
+    <!--
+      One irregular closed blob, drawn once and re-used at a dozen scales below.
+      That is what makes the rings read as a contour map - a level set of one
+      shape - rather than as concentric ovals. An ellipse family would look
+      mechanical, which is the thing this is here to avoid.
+    -->
+    <path
+      id="contour"
+      d="M600 470
+         C 792 470 916 604 946 764
+         C 976 924 892 1084 726 1136
+         C 560 1188 396 1122 326 978
+         C 256 834 318 652 452 536
+         C 498 496 548 470 600 470 Z"
+    />
+  </defs>
+
+  <rect width="1200" height="1600" fill="#08090d" />
+
+  <g filter="url(#soften)">
+    <ellipse cx="120" cy="90" rx="620" ry="560" fill="url(#teal)" />
+    <ellipse cx="1180" cy="440" rx="560" ry="520" fill="url(#violet)" />
+    <ellipse cx="940" cy="1540" rx="480" ry="430" fill="url(#lime)" />
+    <ellipse cx="240" cy="1240" rx="520" ry="480" fill="url(#indigo)" />
+  </g>
+
+  <!--
+    The contour rings. Opacity climbs with scale so the family reads as
+    receding towards its centre, which is what gives the flat panel depth.
+    Non-scaling stroke is not used deliberately: the outer rings ARE meant to
+    be slightly heavier than the inner ones.
+  -->
+  <g fill="none" stroke="#ffffff" stroke-width="1.4">
+    <use href="#contour" transform="translate(600 800) scale(0.16) translate(-600 -800)" stroke-opacity="0.105" />
+    <use href="#contour" transform="translate(600 800) scale(0.28) translate(-600 -800)" stroke-opacity="0.116" />
+    <use href="#contour" transform="translate(600 800) scale(0.4) translate(-600 -800)" stroke-opacity="0.126" />
+    <use href="#contour" transform="translate(600 800) scale(0.52) translate(-600 -800)" stroke-opacity="0.137" />
+    <use href="#contour" transform="translate(600 800) scale(0.65) translate(-600 -800)" stroke-opacity="0.147" />
+    <use href="#contour" transform="translate(600 800) scale(0.79) translate(-600 -800)" stroke-opacity="0.158" />
+    <use href="#contour" transform="translate(600 800) scale(0.94) translate(-600 -800)" stroke-opacity="0.168" />
+    <use href="#contour" transform="translate(600 800) scale(1.1) translate(-600 -800)" stroke-opacity="0.179" />
+    <use href="#contour" transform="translate(600 800) scale(1.28) translate(-600 -800)" stroke-opacity="0.168" />
+    <use href="#contour" transform="translate(600 800) scale(1.48) translate(-600 -800)" stroke-opacity="0.147" />
+    <use href="#contour" transform="translate(600 800) scale(1.7) translate(-600 -800)" stroke-opacity="0.116" />
+    <use href="#contour" transform="translate(600 800) scale(1.95) translate(-600 -800)" stroke-opacity="0.084" />
+  </g>
+</svg>

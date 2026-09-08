@@ -258,7 +258,24 @@ export function Shell({
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-raised)_70%,transparent)] backdrop-blur-xl md:flex">
+      {/*
+        `sticky top-0 h-screen` and both halves are load-bearing.
+
+        THE BUG THIS FIXES: the aside is a flex child of a `min-h-screen` row, so
+        without a height of its own it stretched to the height of the DOCUMENT.
+        The account block below is the last thing in a `flex-col`, so on any page
+        taller than the window - the dashboard, the jobs list - it sat at the
+        bottom of the whole scrollable page rather than the bottom of the
+        sidebar. It was reachable only by scrolling to the very end, which is why
+        it appeared to exist on the profile page and nowhere else: the profile
+        page is the one short enough to fit.
+
+        h-screen pins the column to the viewport and sticky keeps it there while
+        the main column scrolls. The nav in the middle carries `flex-1
+        overflow-y-auto`, so if the nav itself ever outgrows a short window it
+        scrolls inside the sidebar and the account block still holds its place.
+      */}
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-raised)_70%,transparent)] backdrop-blur-xl md:flex">
         <div className="px-4 py-4">
           <Brand />
         </div>
@@ -283,12 +300,36 @@ export function Shell({
               {initials(user.name)}
             </span>
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium text-[var(--ink-primary)]">
-                {user.name}
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-[13px] font-medium text-[var(--ink-primary)]">
+                  {user.name}
+                </span>
+                {/* The role, as a mark beside the name rather than a third line
+                    of small grey text. Not decoration, so it is labelled rather
+                    than aria-hidden - it is the only thing distinguishing an
+                    admin session from a candidate one at a glance. */}
+                {isAdmin && (
+                  <ShieldCheck
+                    size={12}
+                    role="img"
+                    aria-label="Administrator"
+                    className="shrink-0 text-[var(--accent)]"
+                  />
+                )}
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-[var(--ink-muted)]">
-                {isAdmin && <ShieldCheck size={11} aria-hidden />}
-                {isAdmin ? 'Administrator' : 'Candidate'}
+              {/* WHICH ACCOUNT AM I IN. The name is chosen by the person and can
+                  be anything; the email is the identity, and it is the thing
+                  worth checking before signing out of the wrong session or
+                  wondering why a page shows someone else's jobs.
+
+                  `title` because the truncation is real - a work address in a
+                  240px column runs out of room - and a tooltip is the cheapest
+                  way to read the rest without leaving the page. */}
+              <div
+                title={user.email}
+                className="truncate text-[11px] text-[var(--ink-muted)]"
+              >
+                {user.email}
               </div>
             </div>
           </div>

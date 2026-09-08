@@ -269,6 +269,31 @@ body {
     );
 }
 
+/* --- film grain --------------------------------------------------------------
+   The single thing that stops a large gradient looking like a CSS gradient.
+
+   A smooth colour ramp across 700px of screen is banded on an 8-bit display -
+   you can see the steps - and even where it is not, it reads as flat and
+   synthetic. A dusting of monochrome noise breaks the bands up and is what
+   makes the same gradient read as a photograph of light instead.
+
+   Generated in the browser by feTurbulence rather than shipped as a PNG: a
+   noise tile big enough not to visibly repeat is ~40KB as an image and 400
+   bytes as this. Grayscale (`saturate 0`) and `overlay`, so it modulates
+   whatever it is laid over rather than tinting it - which is why the same class
+   works on the near-black brand panel and on a white light-mode surface.
+
+   Sets no opacity of its own. It is always laid on a positioned layer whose
+   Tailwind classes choose the strength, because 5% over near-black and 5% over
+   white are not the same amount of texture.
+
+   Not `background-attachment: fixed`: on iOS that forces a repaint of the whole
+   layer on every scroll frame. */
+.grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
 /* --- motion ------------------------------------------------------------------
    Every animation below is a transform or an opacity, never a layout property,
    so none of them can trigger reflow mid-flight. */
@@ -311,6 +336,27 @@ body {
   }
 }
 
+/* The auth brand panel's colour washes, drifting.
+ *
+ * 28 seconds and a 6% scale, which is slow and small enough that it reads as the
+ * page being lit rather than as something animating. On the layer holding the
+ * gradients only - never the aside itself - so the wordmark and the stage list
+ * stay put. Text that drifts under the eye while being read is a different and
+ * much worse effect.
+ *
+ * Killed outright by the prefers-reduced-motion block below, like the shimmer:
+ * this one also never stops, and an endless animation is the kind that causes
+ * trouble rather than the kind that helps. */
+@keyframes aurora {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-2%, 1.5%, 0) scale(1.06);
+  }
+}
+
 @keyframes pulse-ring {
   0% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
@@ -337,6 +383,11 @@ body {
 
 .animate-pulse-ring {
   animation: pulse-ring 1.8s ease-out infinite;
+}
+
+.animate-aurora {
+  animation: aurora 28s ease-in-out infinite;
+  will-change: transform;
 }
 
 /* Stagger helper. A list where every row fades in at once is a single event;
@@ -393,6 +444,9 @@ body {
   }
   .skeleton::after {
     display: none;
+  }
+  .animate-aurora {
+    animation: none !important;
   }
 }
 

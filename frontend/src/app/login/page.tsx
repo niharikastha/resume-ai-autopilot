@@ -1,5 +1,6 @@
 'use client';
 
+import { Lock, Mail } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
@@ -49,6 +50,7 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
+      eyebrow="Welcome back"
       title="Sign in"
       subtitle="Pick up where the overnight run left off."
       footer={
@@ -62,6 +64,7 @@ export default function LoginPage() {
 
         <Field
           label="Email"
+          icon={Mail}
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -76,10 +79,12 @@ export default function LoginPage() {
         <div>
           <PasswordField
             label="Password"
+            icon={Lock}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
             required
+            placeholder="••••••••"
           />
           <div className="mt-2 text-right text-[13px]">
             <AuthLink href="/forgot-password">Forgot your password?</AuthLink>
