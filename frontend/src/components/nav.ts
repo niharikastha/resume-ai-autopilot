@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Plug,
   Search,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -49,9 +50,15 @@ export const CANDIDATE_NAV: NavItem[] = [
     hint: 'What you sent, and where it got to',
   },
   {
+    href: '/app/resumes',
+    label: 'Resumes',
+    icon: FileText,
+    hint: 'Upload, choose the one in use, edit its pieces',
+  },
+  {
     href: '/app/profile',
     label: 'My profile',
-    icon: FileText,
+    icon: UserRound,
     hint: 'Your answers, CTC and notice period',
   },
 ];

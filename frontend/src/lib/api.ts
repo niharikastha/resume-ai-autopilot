@@ -121,6 +121,23 @@ export const api = {
       method: 'PATCH',
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+
+  /**
+   * A multipart upload, and the ONE call that must not go through `api.post`.
+   *
+   * `send` sets content-type: application/json whenever there is a body. For
+   * FormData that header is actively wrong: multipart needs a boundary parameter,
+   * the browser is the only thing that knows the boundary it generated, and it
+   * only fills the header in when the header is absent. Setting it by hand
+   * produces a request the server cannot split into fields - which arrives as a
+   * confusing "no file arrived" rather than as an obvious content-type error.
+   */
+  upload: <T>(path: string, file: File, field = 'file') => {
+    const form = new FormData();
+    form.append(field, file);
+    return request<T>(path, { method: 'POST', body: form });
+  },
 };
 
 // --- shapes the API returns -------------------------------------------------
@@ -175,6 +192,10 @@ export interface UserOverview {
   profile: {
     id: string;
     label: string;
+    /** True when this is the resume matching and tailoring actually use. The
+     *  overview card reports on the selected one, so without this the card cannot
+     *  say whether what it is describing is the one in use. */
+    isActive: boolean;
     confirmedAt: string | null;
     updatedAt: string;
   } | null;
@@ -271,6 +292,84 @@ export interface UserRow {
   createdAt: string;
   _count: { applications: number; matchScores: number };
   profiles: { confirmedAt: string | null }[];
+}
+
+// --- the resume library -----------------------------------------------------
+
+export type AtomKind = 'BULLET' | 'SKILL' | 'ROLE' | 'EDU';
+
+/** How many pieces of each kind a resume produced. */
+export type AtomCounts = Record<AtomKind, number>;
+
+export interface ResumeSummary {
+  id: string;
+  label: string;
+  /** The name the candidate's own file arrived under. Null for resumes ingested
+   *  through the CLI before the library existed. */
+  filename: string | null;
+  isActive: boolean;
+  confirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  fullName: string;
+  email: string;
+  counts: AtomCounts;
+  atomCount: number;
+  techCount: number;
+  /** Tailored resumes already generated from this one. Non-zero is why deleting
+   *  it asks a second time. */
+  variantCount: number;
+}
+
+export interface ResumeContact {
+  fullName: string;
+  email: string;
+  phone: string | null;
+  location: string | null;
+  linkedIn: string | null;
+  github: string | null;
+  portfolio: string | null;
+}
+
+/**
+ * One piece read out of a resume.
+ *
+ * `tech` and `metrics` are READ-ONLY here. They are re-derived from the text by
+ * the server on every write, because the provenance guard treats them as the
+ * complete list of things a tailored rewrite may claim - sending tags up would be
+ * a way to license a claim the words do not support.
+ */
+export interface ParsedAtom {
+  kind: AtomKind;
+  text: string;
+  tech: string[];
+  metrics: string[];
+  employer?: string | null;
+  dateRange?: string | null;
+}
+
+/** A stored piece: a ParsedAtom that has an id and a place in the order. */
+export interface AtomRow extends ParsedAtom {
+  id: string;
+  ordinal: number;
+  /** Null while this piece is waiting for a vector, which is what decides
+   *  whether matching can see it. Briefly null right after an edit. */
+  embeddedTextHash: string | null;
+}
+
+/** What comes back from the upload step. Nothing has been stored yet. */
+export interface UploadResult {
+  /** Hand this back with the confirmation, unchanged. */
+  uploadId: string;
+  filename: string;
+  contact: ResumeContact;
+  headline: string | null;
+  /** Things the parse was unsure about, in plain words. Worth reading before
+   *  confirming; not errors. */
+  warnings: string[];
+  atoms: ParsedAtom[];
+  counts: AtomCounts;
+  techUnion: string[];
 }
 
 export interface Integrations {

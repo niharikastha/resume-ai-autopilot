@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert, ShieldOff, Upload } from 'lucide-react';
+import Link from 'next/link';
 import { PageHeader } from '@/components/shell';
 import {
   Badge,
@@ -15,9 +16,13 @@ import { useAuth } from '@/lib/auth-context';
 import { relativeTime } from '@/lib/utils';
 
 /**
- * Read-only for now: resume ingestion is phase 3 and application answers are
- * phase 6. The screen exists already because it is where the trust boundaries
- * get explained, and those are true today regardless of what is wired up.
+ * Read-only. Application answers are phase 6, and resumes have their own screen
+ * now - uploading, choosing the one in use and editing its pieces all live under
+ * /app/resumes, because that is three actions on a list rather than one field on
+ * an account page.
+ *
+ * What is left here is the account itself and the trust boundaries, which are
+ * worth stating on their own screen regardless of what is wired up.
  */
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -74,7 +79,14 @@ export default function ProfilePage() {
                       No resume uploaded yet
                     </p>
                     <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                      Upload arrives in phase 3.
+                      Add one under{' '}
+                      <Link
+                        href="/app/resumes"
+                        className="text-[var(--link)] hover:underline"
+                      >
+                        Resumes
+                      </Link>
+                      .
                     </p>
                   </div>
                 </div>
