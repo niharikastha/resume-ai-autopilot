@@ -6,6 +6,7 @@
  */
 const COMMANDS: Record<string, () => Promise<unknown>> = {
   'create-user': () => import('./cli/create-user'),
+  'set-password': () => import('./cli/set-password'),
   'prune-auth': () => import('./cli/prune-auth'),
   discover: () => import('./cli/discover'),
   'companies:probe': () => import('./cli/probe-companies'),
@@ -26,6 +27,11 @@ if (!command || !(command in COMMANDS)) {
 
 commands:
   create-user       --email <email> --name <name> [--role admin|user]
+  set-password      --email <email>
+                    replace an existing account's password and revoke its
+                    sessions. Reads SET_PASSWORD, or generates one and prints it
+                    once. This is the only way back into an account when SMTP is
+                    unset, because /forgot-password needs mail to work.
   prune-auth        [--apply]   delete expired sessions/tokens/resets (dry run by default)
   discover          [--dry-run] [--source <name>] [--limit <n>]
                     fetch job boards and store postings with descriptions
