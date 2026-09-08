@@ -18,6 +18,7 @@ const COMMANDS: Record<string, () => Promise<unknown>> = {
   'skills:remove': () => import('./cli/skills'),
   match: () => import('./cli/match'),
   tailor: () => import('./cli/tailor'),
+  submit: () => import('./cli/submit'),
 };
 
 const command = process.argv[2];
@@ -72,6 +73,15 @@ commands:
                     rendered instead. Note that --dry-run here still makes the
                     LLM calls - it only skips the files and the rows - so pair
                     it with --limit 1.
+  submit            [--plan] [--user <email>] [--limit <n>] [--job <id>]
+                    [--label <name>]
+                    open a real Chrome window and fill in the application forms
+                    for the resumes tailor produced. NOTHING IS EVER SUBMITTED
+                    FOR YOU - each form is filled, screenshotted and then left
+                    for you to read and send. Start with --plan, which lists
+                    what the session would consist of without opening anything.
+                    A submission is only recorded when the employer's own
+                    confirmation is found on the page afterwards.
 
 The three discovery commands need DISCOVERY_CONTACT_EMAIL set in .env - every
 outbound request carries a contact address so a site operator can reach a human.

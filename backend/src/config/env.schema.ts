@@ -117,6 +117,29 @@ export const envSchema = z.object({
    */
   RESUME_UPLOAD_DIR: blank(z.string().default('.artifacts/uploads')),
 
+  /**
+   * Phase 6. Chrome's profile directory for submission sessions.
+   *
+   * A REAL BROWSER PROFILE, with the candidate's logged-in sessions and Chrome's own
+   * autofill in it. Treat it as credentials: `.gitignore` already excludes
+   * `/.browser-profile/`, and it must not be moved somewhere that is not covered.
+   *
+   * Persistent on purpose - see browser.service.ts. A fresh profile every morning
+   * would mean logging into each board again, and would discard the autofill history
+   * the filling engine deliberately leaves alone.
+   */
+  BROWSER_PROFILE_DIR: blank(z.string().default('.browser-profile')),
+
+  /**
+   * Phase 6. Where the full-page screenshot of each prepared form is written.
+   *
+   * These images contain the candidate's contact details and whatever the form asked,
+   * so the default sits under .artifacts/, which .gitignore covers. They are the audit
+   * trail the plan's safety rails require: the evidence of what a form looked like at
+   * the moment a human was asked to send it.
+   */
+  SUBMISSION_SHOT_DIR: blank(z.string().default('.artifacts/submissions')),
+
   // Phase 7.
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
