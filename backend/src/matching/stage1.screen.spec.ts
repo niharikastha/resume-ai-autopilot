@@ -133,11 +133,41 @@ describe('title rules', () => {
     );
   });
 
-  it('keeps SDE and drops SDET, which the substring rule alone would not', () => {
-    // The worked example from config/targets.yaml: `sde` is an include term and it
-    // is a substring of `sdet`, so ordering is the only thing separating these two.
+  it('keeps SDE and drops SDET', () => {
+    // The worked example from config/targets.yaml. `sde` is an include term and it
+    // is spelled inside `sdet`, so this used to hold only because exclude is
+    // evaluated first; now the word boundary separates them too, and both
+    // mechanisms have to keep agreeing.
     expect(reasonFor(posting({ title: 'SDE II' }))).toBe('PASSED');
     expect(reasonFor(posting({ title: 'SDET II' }))).toBe('title-excluded');
+  });
+
+  it('does not read a config term as a fragment of a longer word', () => {
+    // MEASURED against the real corpus. `intern` matched "Internal", so a live
+    // Bengaluru backend role was thrown out as an internship - and a rejected
+    // posting produces no output, so nothing surfaced it.
+    expect(reasonFor(posting({ title: 'Software Engineer, Internal Systems' }))).toBe(
+      'PASSED',
+    );
+    // The term still has to do its actual job.
+    expect(reasonFor(posting({ title: 'Software Engineer, Intern' }))).toBe(
+      'title-excluded',
+    );
+    expect(reasonFor(posting({ title: 'Software Engineering Internship' }))).toBe(
+      'title-excluded',
+    );
+  });
+
+  it('still matches a plural or a gerund, because the lists are singular', () => {
+    // The reason the boundary rule allows s/es/ing and is not a bare \b...\b.
+    // "Software Engineering" is how a large fraction of real titles are written,
+    // and `software engineer` has to keep reaching it.
+    expect(reasonFor(posting({ title: 'Software Engineering, Payments' }))).toBe(
+      'PASSED',
+    );
+    expect(reasonFor(posting({ title: 'Engineering Managers, Core' }))).toBe(
+      'title-excluded',
+    );
   });
 
   it('names the term that excluded it', () => {
@@ -208,6 +238,16 @@ describe('location and remote eligibility', () => {
 
   it('rejects an onsite posting outside the allow list', () => {
     expect(reasonFor(posting({ location: 'Berlin, Germany' }))).toBe('location');
+  });
+
+  it('does not accept Indiana as India', () => {
+    // The same fragment bug as `intern`, in the direction that costs an
+    // application rather than hides one: this used to PASS, and the funnel would
+    // have spent an Opus tailoring call on a job in the American Midwest.
+    expect(
+      reasonFor(posting({ location: 'Indianapolis, Indiana' })),
+    ).toBe('location');
+    expect(reasonFor(posting({ location: 'Remote - India' }))).toBe('PASSED');
   });
 
   it('rejects remote roles restricted to another region', () => {
@@ -380,8 +420,16 @@ describe('freshness', () => {
   });
 
   it('uses the injected clock, not the wall clock', () => {
-    // The assertion that this file will still pass in a year.
-    const later = { now: new Date('2027-01-01T00:00:00.000Z'), appliedJobIds: new Set<string>() };
+    // The assertion that this file will still pass in a year. The offset is derived
+    // from the config rather than written as a date, like every other test in this
+    // block: a literal 2027-01-01 was a fixed four months out, so raising
+    // maxAgeDays from 45 to 180 turned this into a test that the clock is IGNORED.
+    const later = {
+      now: new Date(
+        NOW.getTime() + (targets.freshness.maxAgeDays + 5) * 86_400_000,
+      ),
+      appliedJobIds: new Set<string>(),
+    };
     expect(reasonFor(posting(), later)).toBe('stale');
   });
 });

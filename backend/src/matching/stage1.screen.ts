@@ -94,9 +94,47 @@ const APPLICABLE_REMOTE: ReadonlySet<RemoteType> = new Set([
   RemoteType.REMOTE_GLOBAL,
 ]);
 
-/** Substring search, with the term already lower-cased by the targets loader. */
+/**
+ * Compiled form of one config term. Cached because every posting is tested against
+ * every term in a ~150-entry list, and the lists do not change inside a run.
+ */
+const PATTERNS = new Map<string, RegExp>();
+
+/**
+ * A term matches at WORD BOUNDARIES, not anywhere in the string.
+ *
+ * A plain `includes` reads every term as a fragment, and the fragments collide with
+ * real words. MEASURED against the 4804-posting corpus: `intern` rejected "Software
+ * Engineer, Internal Systems" in Bengaluru as an internship, and `india` in the
+ * location list matches Indiana. Both are silent - a rejected posting produces no
+ * output, and a wrongly-accepted location produces a tailored resume for a job in
+ * the wrong hemisphere.
+ *
+ * The trailing `(?:s|es|ing|ings)?` is the reason this is not just `\b...\b`. The
+ * lists are written in the singular, and titles are not: `software engineer` has to
+ * go on matching "Software Engineering, Backend" and `manager` has to go on matching
+ * "Engineering Managers". Only those inflections, so "intern" still does not reach
+ * "internal" - the whole point of the change.
+ *
+ * ONE THING THIS GIVES UP, deliberately: `vp` no longer matches "RVP" or "AVP",
+ * which are vice-president roles it used to catch by accident. Five postings, all
+ * sales, none of them applicable anyway - and the honest fix if they matter is to
+ * write those two spellings into the list rather than to keep a rule that also
+ * fires on any word ending in those letters.
+ */
+function patternFor(term: string): RegExp {
+  let pattern = PATTERNS.get(term);
+  if (!pattern) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    pattern = new RegExp(`\\b${escaped}(?:s|es|ing|ings)?\\b`, 'i');
+    PATTERNS.set(term, pattern);
+  }
+  return pattern;
+}
+
+/** The first term that matches, with the term already lower-cased by the loader. */
 function firstMatch(haystack: string, terms: string[]): string | undefined {
-  return terms.find((term) => haystack.includes(term));
+  return terms.find((term) => patternFor(term).test(haystack));
 }
 
 /**

@@ -72,6 +72,10 @@ titles:
     - ai developer
     - rag engineer
     - forward deployed engineer
+    # Palantir's name for the same job, and now several others' - three live
+    # India roles were being dropped for the spelling alone.
+    - deployment strategist
+    - deployment engineer
 
   # Rejected outright, even if an include matched. These are not "worse jobs" -
   # they are jobs a 2024 graduate with ~2 years cannot be hired into, and a
@@ -301,9 +305,25 @@ keywords:
 # -----------------------------------------------------------------------------
 freshness:
   # Postings older than this are not applied to - the role is usually filled or
-  # the pipeline is full. Generous because Indian postings stay open 4-6 weeks
-  # (PLAN-v2's own note on why 115 live roles is ~3 new ones a day).
-  maxAgeDays: 45
+  # the pipeline is full.
+  #
+  # WAS 45, AND 45 WAS MEASURED WRONG. `postedAt` is not the date the job was
+  # advertised. Greenhouse, Lever and Ashby all report the date the hiring
+  # REQUISITION was created, and employers keep an evergreen req open for years
+  # without ever re-dating it - so a live Bengaluru backend role reads as 1219
+  # days old. Audited against the real 4804-posting corpus: 2879 postings were
+  # older than 45 days by this field, and ALL 2879 were still on their board at
+  # the last sweep. Not one was actually gone.
+  #
+  # The cost was the whole funnel. Of the 62 India-located postings that clear
+  # the title rules - the real pool - 49 were rejected here and 13 survived.
+  #
+  # 180 rather than no rule at all, because the field is not useless, only
+  # mis-named: a req nobody has touched in six months is a genuinely worse bet
+  # than one from last week. And "the job is gone" is already tracked properly
+  # elsewhere - discovery sets `closedAt` when a posting disappears from the
+  # board, and stage 1 rejects on that first.
+  maxAgeDays: 180
   # A posting with no date. Kept: several connectors simply do not report one,
   # and rejecting them would drop whole boards for a missing field.
   allowUnknownAge: true
