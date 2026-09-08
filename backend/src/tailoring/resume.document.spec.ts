@@ -13,6 +13,7 @@ import {
   type DocumentAtom,
   type ResumeContact,
 } from './resume.document';
+import { roleHeadingText } from './resume.render';
 import type { TailorOutput } from '../llm/tasks/tailor-resume.task';
 
 const CONTACT: ResumeContact = {
@@ -40,11 +41,39 @@ function atom(
 const ATOMS: DocumentAtom[] = [
   atom('skill-1', AtomKind.SKILL, 'Languages: TypeScript, Python', 0),
   atom('role-1', AtomKind.ROLE, 'SDE-1', 1, 'Merqube', 'Jan 2024 - Present'),
-  atom('b-1', AtomKind.BULLET, 'Improved ingestion throughput by 65%.', 2, 'Merqube', 'Jan 2024 - Present'),
-  atom('b-2', AtomKind.BULLET, 'Owned the release pipeline.', 3, 'Merqube', 'Jan 2024 - Present'),
+  atom(
+    'b-1',
+    AtomKind.BULLET,
+    'Improved ingestion throughput by 65%.',
+    2,
+    'Merqube',
+    'Jan 2024 - Present',
+  ),
+  atom(
+    'b-2',
+    AtomKind.BULLET,
+    'Owned the release pipeline.',
+    3,
+    'Merqube',
+    'Jan 2024 - Present',
+  ),
   atom('role-2', AtomKind.ROLE, 'Intern', 4, 'Hyally', 'Jun 2023 - Dec 2023'),
-  atom('b-3', AtomKind.BULLET, 'Built the HL7/FHIR pipeline.', 5, 'Hyally', 'Jun 2023 - Dec 2023'),
-  atom('edu-1', AtomKind.EDU, 'B.Tech, Computer Science', 6, 'NIT', '2019 - 2023'),
+  atom(
+    'b-3',
+    AtomKind.BULLET,
+    'Built the HL7/FHIR pipeline.',
+    5,
+    'Hyally',
+    'Jun 2023 - Dec 2023',
+  ),
+  atom(
+    'edu-1',
+    AtomKind.EDU,
+    'B.Tech, Computer Science',
+    6,
+    'NIT',
+    '2019 - 2023',
+  ),
 ];
 
 function tailoring(overrides: Partial<TailorOutput> = {}): TailorOutput {
@@ -96,10 +125,24 @@ describe('the base resume - the fallback path', () => {
   });
 
   it('does not depend on the atoms arriving sorted', () => {
-    const shuffled = [ATOMS[5], ATOMS[0], ATOMS[3], ATOMS[1], ATOMS[6], ATOMS[2], ATOMS[4]];
+    const shuffled = [
+      ATOMS[5],
+      ATOMS[0],
+      ATOMS[3],
+      ATOMS[1],
+      ATOMS[6],
+      ATOMS[2],
+      ATOMS[4],
+    ];
     const fromShuffled = buildResume(shuffled, CONTACT, null, null);
-    expect(fromShuffled.roles.map((r) => r.employer)).toEqual(['Merqube', 'Hyally']);
-    expect(fromShuffled.roles[0].bullets.map((b) => b.atomId)).toEqual(['b-1', 'b-2']);
+    expect(fromShuffled.roles.map((r) => r.employer)).toEqual([
+      'Merqube',
+      'Hyally',
+    ]);
+    expect(fromShuffled.roles[0].bullets.map((b) => b.atomId)).toEqual([
+      'b-1',
+      'b-2',
+    ]);
   });
 });
 
@@ -115,10 +158,15 @@ describe('the tailored resume', () => {
       ATOMS,
       CONTACT,
       null,
-      tailoring({ rewrites: [{ atomId: 'b-1', text: 'Raised throughput 65%.' }] }),
+      tailoring({
+        rewrites: [{ atomId: 'b-1', text: 'Raised throughput 65%.' }],
+      }),
     );
     const [first, second] = doc.roles[0].bullets;
-    expect(first).toMatchObject({ text: 'Raised throughput 65%.', rewritten: true });
+    expect(first).toMatchObject({
+      text: 'Raised throughput 65%.',
+      rewritten: true,
+    });
     expect(second.rewritten).toBe(false);
   });
 
@@ -229,9 +277,9 @@ describe('role blocks', () => {
 
 describe('resumeFilename', () => {
   it('builds the name PLAN specifies', () => {
-    expect(resumeFilename('Astha Niharika', 'Razorpay', 'Backend Engineer')).toBe(
-      'Astha_Niharika_Razorpay_Backend_Engineer',
-    );
+    expect(
+      resumeFilename('Astha Niharika', 'Razorpay', 'Backend Engineer'),
+    ).toBe('Astha_Niharika_Razorpay_Backend_Engineer');
   });
 
   it('strips a slash out of a role title', () => {
@@ -243,7 +291,9 @@ describe('resumeFilename', () => {
   });
 
   it('strips punctuation a company name carries', () => {
-    expect(resumeFilename('A B', 'Foo, Inc.', 'SDE II')).toBe('A_B_Foo_Inc_SDE_II');
+    expect(resumeFilename('A B', 'Foo, Inc.', 'SDE II')).toBe(
+      'A_B_Foo_Inc_SDE_II',
+    );
   });
 
   it('does not leave a dangling separator when a part is empty', () => {
@@ -253,5 +303,38 @@ describe('resumeFilename', () => {
   it('caps each part so a long posting title cannot overflow a path', () => {
     const name = resumeFilename('A B', 'C', 'x'.repeat(200));
     expect(name.length).toBeLessThan(80);
+  });
+});
+
+describe('roleHeadingText', () => {
+  it('writes employer and title once when they are the same', () => {
+    // MEASURED, on a real rendered pdf: an atom for a personal project carries the
+    // project's name in BOTH fields, and the heading printed it twice - "Walking
+    // Pal - The First Walking Buddy App" repeated, wrapping onto a second line at
+    // the top of the experience section.
+    expect(
+      roleHeadingText(
+        'Walking Pal - The First Walking Buddy App',
+        'Walking Pal - The First Walking Buddy App',
+      ),
+    ).toBe('Walking Pal - The First Walking Buddy App');
+  });
+
+  it('treats a difference in case or spacing as the same name', () => {
+    // The employer field is printed first, so its spelling is the one kept.
+    expect(
+      roleHeadingText('AI Knowledge  Assistant', 'ai knowledge assistant'),
+    ).toBe('ai knowledge assistant');
+  });
+
+  it('keeps both when they are genuinely different', () => {
+    expect(roleHeadingText('Software Developer Engineer - 1', 'Hyscaler')).toBe(
+      'Hyscaler - Software Developer Engineer - 1',
+    );
+  });
+
+  it('prints whichever one exists when the other is missing', () => {
+    expect(roleHeadingText('Backend Engineer', null)).toBe('Backend Engineer');
+    expect(roleHeadingText('', 'Hyscaler')).toBe('Hyscaler');
   });
 });

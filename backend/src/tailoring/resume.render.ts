@@ -81,7 +81,12 @@ function heading(text: string): Paragraph {
       bottom: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 2 },
     },
     children: [
-      new TextRun({ text: text.toUpperCase(), bold: true, size: BODY, font: FONT }),
+      new TextRun({
+        text: text.toUpperCase(),
+        bold: true,
+        size: BODY,
+        font: FONT,
+      }),
     ],
   });
 }
@@ -95,7 +100,46 @@ function bullet(text: string): Paragraph {
 }
 
 /**
- * The role heading: "Title, Employer" on the left and the dates on the right.
+ * The left-hand side of a role heading: "Employer - Title", written once.
+ *
+ * DEDUPED, because a PROJECT has no employer distinct from its name - ingestion
+ * fills both fields with the same string, and a plain join printed "Walking Pal -
+ * The First Walking Buddy App - Walking Pal - The First Walking Buddy App" across
+ * two lines of a real rendered resume. Compared loosely: a trailing period or a
+ * difference in case is the same name written twice.
+ *
+ * Exported for the tests. The heading is the first thing a recruiter's eye lands
+ * on, and it is the one line on the page that no model wrote.
+ */
+export function roleHeadingText(
+  title: string,
+  employer: string | null,
+): string {
+  const parts = [employer, title]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  const key = (part: string) =>
+    part
+      .toLowerCase()
+      .replace(/[\s.]+/g, ' ')
+      .trim();
+
+  // First spelling wins, so the heading reads in field order and the same profile
+  // renders the same string every time. `new Map` would keep the LAST value for a
+  // repeated key, which would silently prefer the title's casing over the
+  // employer's for no reason anyone could predict from reading the call.
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const part of parts) {
+    if (seen.has(key(part))) continue;
+    seen.add(key(part));
+    kept.push(part);
+  }
+  return kept.join(' - ');
+}
+
+/**
+ * One role heading: the name on the left, the dates on the right.
  *
  * The right-hand alignment is a TAB STOP, not a table cell and not a run of spaces.
  * A tab is one character the parser skips; a table is a structure it has to
@@ -106,7 +150,7 @@ function roleHeading(
   employer: string | null,
   dateRange: string | null,
 ): Paragraph {
-  const left = [employer, title].filter((part) => part && part.trim()).join(' - ');
+  const left = roleHeadingText(title, employer);
   const children = [
     new TextRun({ text: left, bold: true, size: BODY, font: FONT }),
   ];
@@ -201,7 +245,9 @@ export function toDocx(doc: ResumeDocument): Document {
     styles: {
       default: {
         document: { run: { font: FONT, size: BODY } },
-        heading2: { run: { font: FONT, size: BODY, bold: true, color: '000000' } },
+        heading2: {
+          run: { font: FONT, size: BODY, bold: true, color: '000000' },
+        },
       },
     },
     numbering: {
@@ -273,10 +319,21 @@ export async function renderResume(
  * concurrent conversions contend over the single default profile in $HOME and the
  * second one exits silently having produced nothing - which looks exactly like a
  * document LibreOffice could not read.
+ *
+ * ABSOLUTE, via path.resolve. `file://` takes an absolute path - everything after
+ * the two slashes up to the next one is the HOST - so `file://.artifacts/resumes`
+ * asks for a profile on a machine called ".artifacts", and RESUME_OUTPUT_DIR
+ * defaults to exactly that kind of relative path. LibreOffice does not complain:
+ * it hangs until the timeout and writes nothing, which this function then reports
+ * as "conversion failed". Measured - every pdf was silently missing until the
+ * resolve was added, on a machine with LibreOffice installed and working.
  */
-async function toPdf(docxPath: string, outputDir: string): Promise<string | null> {
+async function toPdf(
+  docxPath: string,
+  outputDir: string,
+): Promise<string | null> {
   const expected = docxPath.replace(/\.docx$/, '.pdf');
-  const profile = path.join(outputDir, '.lo-profile');
+  const profile = path.resolve(outputDir, '.lo-profile');
 
   try {
     await exec(
