@@ -27,6 +27,7 @@
     "prisma:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.33.4",
     "@anthropic-ai/sdk": "^0.124.0",
     "@huggingface/transformers": "^3.8.1",
     "@nestjs/bullmq": "^11.0.4",

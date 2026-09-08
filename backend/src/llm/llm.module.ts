@@ -13,6 +13,10 @@
  * AND LOGGED matters for the same reason from the other direction: the two providers
  * do not produce identical output, so "why did today's scores shift" has a boring
  * answer often enough that the boot line should make it checkable in one grep.
+ *
+ * CLAUDE_AUTH_MODE is a second, independent question - the Anthropic API or AWS
+ * Bedrock - and it is ClaudeProvider's, not this module's. What lands here is the
+ * one line and the notes it prints, because that is what makes the answer greppable.
  */
 import { Logger, Module, Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -53,14 +57,16 @@ const providerFactory: Provider = {
       );
     }
 
-    const hasKey = Boolean(config.get<string>('ANTHROPIC_API_KEY'));
     logger.log(
-      `LLM provider: ${claude.id} ` +
-        `(score: ${claude.modelFor('fast')}, tailor: ${claude.modelFor('deep')})` +
-        // Not fatal at boot on purpose - see the note on ClaudeProvider.sdk().
-        // Loud here so it is known before a cron run discovers it at 06:00.
-        (hasKey ? '' : ' - WARNING: ANTHROPIC_API_KEY is unset, calls will fail'),
+      `LLM provider: ${claude.id} via ${claude.authMode()} ` +
+        `(score: ${claude.modelFor('fast')}, tailor: ${claude.modelFor('deep')})`,
     );
+
+    // Not fatal at boot on purpose - see the note on ClaudeProvider.sdk(). Loud here
+    // so it is known before a cron run discovers it at 06:00. The provider owns the
+    // rules because which variable matters depends on CLAUDE_AUTH_MODE, and a check
+    // written here would go stale the first time a mode is added.
+    for (const note of claude.bootNotes()) logger.log(`LLM provider: ${note}`);
 
     return claude;
   },

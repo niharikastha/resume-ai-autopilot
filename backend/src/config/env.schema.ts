@@ -36,6 +36,59 @@ export const envSchema = z.object({
   GOOGLE_API_KEY: z.string().optional(),
 
   /**
+   * HOW to reach Claude. A separate question from LLM_PROVIDER, which picks WHICH
+   * model family - the same Opus and Haiku are reachable either through Anthropic
+   * directly or through AWS Bedrock, and only the credentials and the model ids
+   * differ.
+   *
+   * Kept as its own variable rather than folded in as `LLM_PROVIDER=bedrock`
+   * because the provider id is written into every MatchScore and ResumeVariant row.
+   * Bedrock is not a different provider producing different answers; it is the same
+   * model behind a different door, and a row that claimed otherwise would make
+   * "why did the scores shift" harder to answer rather than easier.
+   *
+   * `api-key` by default, because that is the path with no AWS account in it.
+   */
+  CLAUDE_AUTH_MODE: blank(z.enum(['api-key', 'bedrock']).default('api-key')),
+
+  /**
+   * Bedrock credentials, used only when CLAUDE_AUTH_MODE=bedrock. All optional
+   * here for the same reason ANTHROPIC_API_KEY is: discovery and profile ingestion
+   * do not need them, and the app should not refuse to boot over an unset one.
+   * ClaudeProvider fails at the first call instead, naming what is missing.
+   *
+   * Three ways to authenticate, tried in this order:
+   *   1. AWS_BEARER_TOKEN_BEDROCK - a Bedrock API key from the AWS console. The
+   *      simplest: one value, no SigV4, no IAM user.
+   *   2. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN for a
+   *      temporary role). Signed with SigV4.
+   *   3. Neither, in which case the AWS credential provider chain resolves them -
+   *      `~/.aws/credentials`, SSO, an instance role. This is the right answer on
+   *      an EC2 host and the reason the keys are not required.
+   *
+   * AWS_REGION IS effectively required in bedrock mode, and is enforced at the
+   * point of use rather than here - optional in this schema only because it must
+   * not stop an api-key install from booting. It picks the endpoint host, and with
+   * it which region's model access applies.
+   */
+  AWS_REGION: z.string().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  AWS_SESSION_TOKEN: z.string().optional(),
+  AWS_BEARER_TOKEN_BEDROCK: z.string().optional(),
+
+  /**
+   * Bedrock model ids, overriding the `anthropic.`-prefixed defaults.
+   *
+   * Rarely needed: Bedrock takes the same model names behind that one prefix, so
+   * ClaudeProvider can build the id rather than ask. These exist for the two things
+   * a prefix cannot express - a provisioned-throughput ARN, and pinning a dated
+   * snapshot in an account where the alias is not what has been granted.
+   */
+  BEDROCK_MODEL_FAST: z.string().optional(),
+  BEDROCK_MODEL_DEEP: z.string().optional(),
+
+  /**
    * Phase 5. Where tailored resumes are written.
    *
    * Relative paths resolve against the process cwd, which for `npm run cli` is

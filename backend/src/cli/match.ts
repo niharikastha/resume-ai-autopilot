@@ -125,7 +125,9 @@ async function main(): Promise<void> {
     if (result.ranked.length === 0) {
       console.log(
         '\nnothing scored. If stage 1 rejected everything, read the histogram ' +
-          'above; if stage 3 failed, check ANTHROPIC_API_KEY.\n',
+          'above; if stage 3 failed, every failure logged its own reason there, ' +
+          'and a credentials problem names the variable to set - which one depends ' +
+          'on CLAUDE_AUTH_MODE, printed in the boot log.\n',
       );
       return;
     }

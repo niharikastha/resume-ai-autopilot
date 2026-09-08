@@ -22,7 +22,7 @@
  * live keys.
  */
 import { ConfigService } from '@nestjs/config';
-import { ClaudeProvider } from './claude.provider';
+import { ClaudeProvider, jsonSchemaOf } from './claude.provider';
 import { LlmError } from './llm.types';
 import {
   ScoreJobInput,
@@ -186,12 +186,16 @@ describe('ScoreJobOutputSchema', () => {
   it('rejects a score outside 0-100', () => {
     // Constrained decoding guarantees `number`, not `0 <= n <= 100`. A 150 would
     // rank above every real match and never be questioned again.
-    expect(() => ScoreJobOutputSchema.parse({ ...valid, score: 150 })).toThrow();
+    expect(() =>
+      ScoreJobOutputSchema.parse({ ...valid, score: 150 }),
+    ).toThrow();
     expect(() => ScoreJobOutputSchema.parse({ ...valid, score: -1 })).toThrow();
   });
 
   it('rejects a non-integer score', () => {
-    expect(() => ScoreJobOutputSchema.parse({ ...valid, score: 78.5 })).toThrow();
+    expect(() =>
+      ScoreJobOutputSchema.parse({ ...valid, score: 78.5 }),
+    ).toThrow();
   });
 
   it('rejects an unknown verdict', () => {
@@ -205,7 +209,9 @@ describe('ScoreJobOutputSchema', () => {
   it('rejects an empty reasons list', () => {
     // A score with no reasons is unreviewable, and reviewing them every morning is
     // the entire mechanism for noticing the scorer has drifted.
-    expect(() => ScoreJobOutputSchema.parse({ ...valid, reasons: [] })).toThrow();
+    expect(() =>
+      ScoreJobOutputSchema.parse({ ...valid, reasons: [] }),
+    ).toThrow();
   });
 
   it('rejects a missing field rather than defaulting it', () => {
@@ -282,9 +288,9 @@ describe('ClaudeProvider', () => {
     // Which is also the assertion that a scoring run with nothing left after stage 1
     // costs nothing and needs no credentials.
     const provider = new ClaudeProvider(config());
-    await expect(provider.completeMany(scoreJobTask, shared(), [])).resolves.toEqual(
-      new Map(),
-    );
+    await expect(
+      provider.completeMany(scoreJobTask, shared(), []),
+    ).resolves.toEqual(new Map());
   });
 
   it('refuses duplicate keys before spending anything', async () => {
@@ -301,5 +307,176 @@ describe('ClaudeProvider', () => {
 
   it('reports the provider id that MatchScore.llmProvider stores', () => {
     expect(new ClaudeProvider(config()).id).toBe('claude');
+  });
+
+  it('defaults to api-key mode when CLAUDE_AUTH_MODE is unset', () => {
+    // The path with no AWS account in it. A default of bedrock would break every
+    // existing install on upgrade.
+    expect(new ClaudeProvider(config()).authMode()).toBe('api-key');
+  });
+});
+
+/**
+ * The Bedrock door.
+ *
+ * Everything here is what can be checked without an AWS account: which model id is
+ * addressed, which variable is named when one is missing, and that the batch path is
+ * refused rather than attempted. What is not testable here is model access - whether
+ * this account may call these ids in this region - which is why the wrapped
+ * BadRequestError names it first.
+ */
+describe('ClaudeProvider on Bedrock', () => {
+  const bedrock = (extra: Record<string, string> = {}) =>
+    new ClaudeProvider(
+      config({
+        CLAUDE_AUTH_MODE: 'bedrock',
+        AWS_REGION: 'ap-south-1',
+        ...extra,
+      }),
+    );
+
+  it('addresses the same models behind the anthropic. prefix', () => {
+    expect(bedrock().modelFor('deep')).toBe('anthropic.claude-opus-5');
+    expect(bedrock().modelFor('fast')).toBe('anthropic.claude-haiku-4-5');
+    // The region belongs to the client, not to the id. A geography prefix
+    // (`apac.anthropic.…`) here would mean someone has reintroduced the legacy
+    // InvokeModel path, which this provider deliberately does not use.
+    expect(bedrock({ AWS_REGION: 'us-west-2' }).modelFor('fast')).toBe(
+      'anthropic.claude-haiku-4-5',
+    );
+  });
+
+  it('lets the env override the id, for the two things a prefix cannot express', () => {
+    // A provisioned-throughput ARN, and pinning a dated snapshot in an account where
+    // the alias is not what has been granted.
+    const provider = bedrock({
+      BEDROCK_MODEL_DEEP: 'arn:aws:bedrock:ap-south-1:1:provisioned-model/abc',
+      BEDROCK_MODEL_FAST: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+    });
+    expect(provider.modelFor('deep')).toBe(
+      'arn:aws:bedrock:ap-south-1:1:provisioned-model/abc',
+    );
+    expect(provider.modelFor('fast')).toBe(
+      'anthropic.claude-haiku-4-5-20251001-v1:0',
+    );
+  });
+
+  it('does not consult ANTHROPIC_API_KEY at all', async () => {
+    // The regression this guards: an api key left in .env from before the switch
+    // must not make a bedrock run look configured.
+    const provider = new ClaudeProvider(
+      config({
+        CLAUDE_AUTH_MODE: 'bedrock',
+        ANTHROPIC_API_KEY: 'sk-ant-whatever',
+      }),
+    );
+    expect(provider.bootNotes().join(' ')).toMatch(/AWS_REGION is unset/);
+    await expect(
+      provider.complete(scoreJobTask, shared(), job()),
+    ).rejects.toThrow(/AWS_REGION is not set/);
+  });
+
+  it('refuses the batch path instead of attempting it', async () => {
+    // Bedrock has no Batch API, and the Mantle client's types do not say so - it
+    // exposes `messages.batches` like the direct one. So this test is the only thing
+    // between `mode: 'batch'` and a 404, and it is refused with the reason rather than
+    // downgraded silently: a caller who asked for half price should not have to read
+    // the bill to find out they did not get it.
+    await expect(
+      bedrock().completeMany(
+        scoreJobTask,
+        shared(),
+        [{ key: 'a', input: job() }],
+        {
+          mode: 'batch',
+        },
+      ),
+    ).rejects.toThrow(/Batch API does not exist on Bedrock/);
+  });
+
+  it('refuses to resume a batch id it could never have issued', async () => {
+    await expect(
+      bedrock().completeMany(
+        scoreJobTask,
+        shared(),
+        [{ key: 'a', input: job() }],
+        {
+          batchId: 'msgbatch_from_a_previous_life',
+        },
+      ),
+    ).rejects.toThrow(/Batch API does not exist on Bedrock/);
+  });
+
+  it('says how the AWS credentials will be resolved', () => {
+    // Leaning on the provider chain is a normal way to run on an EC2 instance role,
+    // so it is a note rather than a warning - and the boot log is the only place
+    // anyone finds out which of the three paths is in play.
+    expect(bedrock().bootNotes().join(' ')).toMatch(/AWS provider chain/);
+    expect(
+      bedrock({ AWS_BEARER_TOKEN_BEDROCK: 'abc' }).bootNotes().join(' '),
+    ).not.toMatch(/AWS provider chain/);
+    expect(
+      bedrock({ AWS_ACCESS_KEY_ID: 'AKIA', AWS_SECRET_ACCESS_KEY: 's' })
+        .bootNotes()
+        .join(' '),
+    ).not.toMatch(/AWS provider chain/);
+    // Half a static pair is not a credential. The SDK deprecates it and would sign
+    // with something that cannot work.
+    expect(
+      bedrock({ AWS_ACCESS_KEY_ID: 'AKIA' }).bootNotes().join(' '),
+    ).toMatch(/AWS provider chain/);
+  });
+
+  /**
+   * The tool that replaces structured output there.
+   *
+   * Bedrock's Messages endpoint accepts neither `output_config.format` nor `strict`,
+   * so the schema is sent as a forced tool call instead. Two properties of that
+   * translation fail silently, which is why they are asserted here rather than left
+   * to the live run: a tool block that is not byte-stable invalidates the profile
+   * cache behind it on every request, and a schema whose constraints got dropped in
+   * translation produces answers that are worse in a way no error reports.
+   */
+  describe('the schema as a tool', () => {
+    it('is byte-identical every time it is derived', () => {
+      // `tools` sits in front of `system` in the cache prefix, so a schema that
+      // serialised differently between two calls of a run would cost ~10x with no
+      // symptom other than the bill. This is the same hazard the prefix tests cover,
+      // one field earlier in the request.
+      expect(JSON.stringify(jsonSchemaOf(ScoreJobOutputSchema))).toBe(
+        JSON.stringify(jsonSchemaOf(ScoreJobOutputSchema)),
+      );
+    });
+
+    it('keeps the constraints as keywords the model can read', () => {
+      // The reason this does not go through the SDK's `zodOutputFormat`: that helper
+      // relocates every unsupported-by-the-decoder keyword into a description string.
+      // A tool schema supports them, and `verdict` as a real enum of five values is
+      // the difference between steering the model and describing the steering.
+      const schema = jsonSchemaOf(ScoreJobOutputSchema);
+      const props = schema.properties as Record<string, unknown>;
+      expect(props.verdict).toMatchObject({
+        enum: ['STRONG', 'GOOD', 'BORDERLINE', 'WEAK', 'REJECT'],
+      });
+      expect(props.score).toMatchObject({ minimum: 0, maximum: 100 });
+      expect(schema.required).toContain('estimatedSalaryLPA');
+    });
+
+    it('is an object schema with nothing left to resolve', () => {
+      // `type: 'object'` is asserted by a cast in the provider, and $refs would have
+      // to be resolvable by the API rather than by us.
+      const schema = jsonSchemaOf(TailorOutputSchema);
+      expect(schema.type).toBe('object');
+      expect(JSON.stringify(schema)).not.toContain('$ref');
+      expect(JSON.stringify(schema)).not.toContain('$schema');
+    });
+  });
+
+  it('says nothing at boot when the mode is fully configured', () => {
+    // The counterpart to the warnings: a clean boot log means the region and the
+    // credentials are both present, so anything that then fails is not configuration.
+    expect(bedrock({ AWS_BEARER_TOKEN_BEDROCK: 'abc' }).bootNotes()).toEqual(
+      [],
+    );
   });
 });

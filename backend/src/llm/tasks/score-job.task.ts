@@ -148,7 +148,19 @@ export const scoreJobTask: LlmTask<
     'no estimate, because it will be shown to the candidate as a number to ' +
     'negotiate against.\n' +
     '- Be blunt in the reasons. This output is read by the candidate every ' +
-    'morning to decide where to spend a limited number of applications.',
+    'morning to decide where to spend a limited number of applications.\n' +
+    // These are the schema's own limits, restated for the model. They are not
+    // decoration: nothing enforces a maxLength or a maxItems during generation on
+    // either provider (both drop those keywords - see jsonSchemaOf), so a limit the
+    // prompt does not state is a limit that gets broken and costs the whole posting
+    // its score. Measured: unstated, roughly half of a real run failed here, and
+    // every failure was a length or a count, never a wrong verdict or a bad number.
+    '- At most FIVE reasons, each one sentence and under 300 characters. They are ' +
+    'read as a list, so a sixth reason or a paragraph is worse than four sharp ' +
+    'ones - if you have more to say, say the most decisive part.\n' +
+    '- missingSkills holds NAMES, not explanations: "Apache Spark", not "Apache ' +
+    'Spark (required, deep runtime internals expertise)". Under 60 characters ' +
+    'each, at most twelve, and the reasons are where the explaining goes.',
 
   /**
    * The cached half. A pure function of `shared` - no dates, no counters, no
