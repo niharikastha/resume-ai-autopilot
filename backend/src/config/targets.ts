@@ -80,6 +80,12 @@ const targetsFile = z
         allow: terms(1),
         allowRemoteIndia: z.boolean(),
         allowRemoteUnspecified: z.boolean(),
+        // Defaulted rather than required, unlike every other key in this file. It
+        // was added after the file was already in use, and the safe reading of its
+        // absence is the behaviour that existed before it: a remote role in another
+        // region is not applicable. Requiring it would have made an existing,
+        // correct targets.yaml fail to load on upgrade.
+        allowRemoteOtherRegion: z.boolean().default(false),
       })
       .strict(),
 

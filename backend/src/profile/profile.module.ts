@@ -13,14 +13,21 @@
  */
 import { Module } from '@nestjs/common';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
+import { PreferencesController } from './preferences.controller';
+import { PreferencesService } from './preferences.service';
 import { ProfileService } from './profile.service';
 import { ResumeLibraryService } from './resume-library.service';
 import { ResumeController } from './resume.controller';
 
 @Module({
   imports: [EmbeddingsModule],
-  controllers: [ResumeController],
-  providers: [ProfileService, ResumeLibraryService],
+  // PreferencesController is here rather than in a module of its own because it is
+  // the same thing this module already owns: facts about the candidate that only the
+  // candidate can state. MatchingService does NOT go through the service - it reads
+  // the row itself via a pure mapping in config/locations.ts, so the two CLI
+  // containers that assemble matching by hand need no extra provider.
+  controllers: [ResumeController, PreferencesController],
+  providers: [ProfileService, ResumeLibraryService, PreferencesService],
   exports: [ProfileService, ResumeLibraryService],
 })
 export class ProfileModule {}

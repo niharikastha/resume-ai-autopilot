@@ -275,6 +275,26 @@ describe('location and remote eligibility', () => {
     ).toBe('remote-not-applicable');
   });
 
+  it('accepts a remote role in another region when the candidate asked for one', () => {
+    // Some candidates will take a US-hours remote contract, and until the preference
+    // screen existed there was no way for them to say so - the rejection above was
+    // unconditional. This is the flag the "remote, outside India" tick sets.
+    const willing = {
+      ...targets,
+      locations: { ...targets.locations, allowRemoteOtherRegion: true },
+    };
+    expect(
+      screen(
+        posting({
+          location: 'Remote - United States',
+          remoteType: RemoteType.REMOTE_OTHER_REGION,
+        }),
+        willing,
+        ctx,
+      ),
+    ).toMatchObject({ pass: true });
+  });
+
   it('accepts remote-in-India regardless of the city list', () => {
     // A remote posting has no city to match, so gating it on locations.allow would
     // reject every one of them.

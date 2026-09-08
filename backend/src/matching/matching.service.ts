@@ -29,6 +29,7 @@ import {
   SalaryPeriod,
   SalarySource,
 } from '@prisma/client';
+import { withStatedLocations } from '../config/locations';
 import { Targets, loadTargets } from '../config/targets';
 import {
   EmbeddingsService,
@@ -131,8 +132,24 @@ export class MatchingService {
   ) {}
 
   async match(options: MatchRunOptions = {}): Promise<MatchRunResult> {
-    const targets = loadTargets();
     const profile = await this.resolveProfile(options);
+
+    // The candidate's own cities and remote rules replace the file's, when they have
+    // stated any. Read here rather than inside the screen so the whole run uses one
+    // rule: stage 1's histogram, the pay gate and the ranking all read `targets`, and
+    // a location rule that differed between them would make the funnel counts
+    // describe a filter that never ran.
+    const stated = await this.prisma.jobPreference.findUnique({
+      where: { userId: profile.userId },
+    });
+    const targets = withStatedLocations(loadTargets(), stated);
+    if (stated) {
+      this.logger.log(
+        `locations: this candidate's own preference (${targets.locations.allow.length} ` +
+          `term(s), remote india=${targets.locations.allowRemoteIndia}, ` +
+          `remote elsewhere=${targets.locations.allowRemoteOtherRegion})`,
+      );
+    }
 
     const postings = await this.loadCandidates(options.postingLimit);
     this.logger.log(

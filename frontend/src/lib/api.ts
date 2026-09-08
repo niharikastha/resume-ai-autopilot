@@ -121,6 +121,12 @@ export const api = {
       method: 'PATCH',
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
+  /** For a body that IS the whole resource - see /api/me/preferences. */
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PUT',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 
   /**
@@ -210,6 +216,37 @@ export interface UserOverview {
   applications: Record<string, number>;
   recent: ApplicationRow[];
   blockers: { key: string; label: string; phase: string }[];
+}
+
+/** Where the candidate is willing to work, exactly as the save endpoint takes it. */
+export interface StatedLocations {
+  /** City ids from the catalogue below, never free text. */
+  cities: string[];
+  /** When true the city list is ignored: any Indian location is accepted. */
+  anywhereInIndia: boolean;
+  remoteIndia: boolean;
+  /** Postings that say only "Remote" and name no country. Most Indian ones do. */
+  remoteUnspecified: boolean;
+  remoteOutsideIndia: boolean;
+}
+
+export interface IndiaCity {
+  id: string;
+  label: string;
+  /** The spellings a posting might use. Shown so the screen can explain a choice. */
+  terms: string[];
+  metro: boolean;
+}
+
+export interface PreferencesView {
+  locations: StatedLocations;
+  /** False while config/targets.yaml's defaults are in force, so the UI can say so. */
+  stated: boolean;
+  catalogue: IndiaCity[];
+  metroCityIds: string[];
+  /** Open postings in these places. The location rule only - deliberately not a
+   *  match count, see PreferencesService.countMatching. */
+  matchingNow: number;
 }
 
 export interface ApplicationRow {

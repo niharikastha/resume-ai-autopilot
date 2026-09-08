@@ -90,13 +90,22 @@ describe('loadTargets', () => {
     // Not treated as "match everything" and not as "match nothing" - both are
     // guesses about intent, and one of them applies to every job on the internet.
     expect(() =>
-      loadTargets(fixture(VALID.replace('include: [software engineer]', 'include: []'))),
+      loadTargets(
+        fixture(VALID.replace('include: [software engineer]', 'include: []')),
+      ),
     ).toThrow(TargetsError);
   });
 
   it('refuses an inverted experience window', () => {
     expect(() =>
-      loadTargets(fixture(VALID.replace('maxYears: 6', 'maxYears: 0').replace('minYears: 0', 'minYears: 3'))),
+      loadTargets(
+        fixture(
+          VALID.replace('maxYears: 6', 'maxYears: 0').replace(
+            'minYears: 0',
+            'minYears: 3',
+          ),
+        ),
+      ),
     ).toThrow(TargetsError);
   });
 
@@ -109,13 +118,37 @@ describe('loadTargets', () => {
   it('refuses a tierPreference that repeats one', () => {
     expect(() =>
       loadTargets(
-        fixture(VALID.replace('    - UNKNOWN\n', '    - T1_GLOBAL_INDIA_OFFICE\n')),
+        fixture(
+          VALID.replace('    - UNKNOWN\n', '    - T1_GLOBAL_INDIA_OFFICE\n'),
+        ),
       ),
     ).toThrow(TargetsError);
   });
 
   it('reports a missing file as a clean error', () => {
-    expect(() => loadTargets('/nonexistent/targets.yaml')).toThrow(TargetsError);
+    expect(() => loadTargets('/nonexistent/targets.yaml')).toThrow(
+      TargetsError,
+    );
+  });
+
+  it('defaults allowRemoteOtherRegion to off when the file predates it', () => {
+    // The fixture above does not mention the key, which is the whole point: the key
+    // was added after the file was in use, and requiring it would have made a correct
+    // targets.yaml fail to load on upgrade. Off is the behaviour that existed before
+    // it - a remote role restricted to another region is not applicable.
+    expect(loadTargets(fixture(VALID)).locations.allowRemoteOtherRegion).toBe(
+      false,
+    );
+  });
+
+  it('honours allowRemoteOtherRegion when the file sets it', () => {
+    const path = fixture(
+      VALID.replace(
+        '  allowRemoteUnspecified: true',
+        '  allowRemoteUnspecified: true\n  allowRemoteOtherRegion: true',
+      ),
+    );
+    expect(loadTargets(path).locations.allowRemoteOtherRegion).toBe(true);
   });
 });
 

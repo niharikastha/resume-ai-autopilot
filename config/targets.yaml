@@ -218,8 +218,14 @@ experience:
 # LOCATION
 # -----------------------------------------------------------------------------
 locations:
-  # Substring matched against the posting's location, case-insensitively.
+  # Word-boundary matched against the posting's location, case-insensitively.
   # Bhubaneswar is home; the other three are where the roles are.
+  #
+  # THE FALLBACK, NOT THE RULE. A candidate who has stated their own cities under
+  # My profile -> Where you will work is matched against those instead, and this
+  # block is what everyone else gets. Measured before the screen existed: these
+  # four cities silently rejected 31 real Indian postings, because Gurugram,
+  # Chennai and Coimbatore are not on the list and nothing said so.
   allow:
     - bhubaneswar
     - bengaluru
@@ -238,6 +244,12 @@ locations:
   # routinely say only "Remote", and stage 3 can read the description for a
   # timezone or work-authorisation requirement.
   allowRemoteUnspecified: true
+  # A remote role that names a region the candidate is not in - "Remote, USA".
+  # Off: that is a job in the US, and applying to it spends a day's quota on a
+  # role that needs a visa. A candidate who knows their field hires from India
+  # this way can switch it on for themselves under My profile -> Where you will
+  # work, which overrides this whole block for that person.
+  allowRemoteOtherRegion: false
 
 # -----------------------------------------------------------------------------
 # CONTENT RULES

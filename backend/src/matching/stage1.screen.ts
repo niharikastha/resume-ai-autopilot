@@ -268,12 +268,24 @@ function screenLocation(
   // PLAN-v2's change to 1c, and the measurement behind it: the spike found 509
   // postings tagged remote that were not India-eligible. "Remote - US" is not a
   // remote job, it is a job in the US.
+  //
+  // The candidate can switch this back on. Some employers really do hire from India
+  // into a US-based remote role, and a candidate who knows that about their own field
+  // is better placed to say so than a default is - see JobPreference in schema.prisma.
+  // It stays OFF by default, because the failure it prevents is an application spent
+  // on a job that needs a visa.
   if (posting.remoteType === RemoteType.REMOTE_OTHER_REGION) {
-    return {
-      pass: false,
-      reason: 'remote-not-applicable',
-      matched: posting.location ?? 'remote, another region',
-    };
+    // Accepted or rejected HERE, never handed on to the city rule below. A candidate
+    // who ticked this asked for remote work outside India, and the place such a
+    // posting names is by definition not one of their cities - so falling through
+    // would reject every one of them on `location` and make the tick do nothing.
+    return targets.locations.allowRemoteOtherRegion
+      ? undefined
+      : {
+          pass: false,
+          reason: 'remote-not-applicable',
+          matched: posting.location ?? 'remote, another region',
+        };
   }
 
   if (posting.remoteType === RemoteType.REMOTE_INDIA) {

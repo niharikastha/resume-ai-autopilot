@@ -89,6 +89,7 @@ model User {
   applications    Application[]
   answers         ApplicationAnswers?
   digests         DailyDigest[]
+  jobPreference   JobPreference?
   settingsTouched AppSetting[]
 
   @@index([role])
@@ -228,6 +229,74 @@ model AppSetting {
 /// EEO/demographic fields are deliberately absent from this model entirely.
 /// They are never stored, never inferred and never auto-filled; the form filler
 /// leaves them at "decline to self-identify".
+/// Where this candidate is willing to work, as THEY state it.
+///
+/// WHY THIS IS A TABLE AND NOT config/targets.yaml. The location rule is the one
+/// stage-1 rule whose right answer is a fact about a person rather than about the
+/// job market: which cities they would move to, and whether a remote role in
+/// another country is worth an application. Keeping it in the YAML meant editing a
+/// file on the server to answer a question only the candidate can answer, and the
+/// default four cities silently rejected 31 real Indian postings - MongoDB in
+/// Gurugram, Freshworks in Chennai, Bosch in Coimbatore - with no trace anywhere
+/// that a preference had been guessed on their behalf.
+///
+/// ABSENT MEANS "USE THE FILE". A candidate who has never opened the screen gets
+/// config/targets.yaml's rule, unchanged. That keeps this additive: no migration
+/// has to invent a preference for an existing account, and nothing about matching
+/// changes until somebody deliberately states what they want.
+///
+/// EVERY FIELD IS A WIDENING OR A NARROWING OF ONE RULE, so the combination is
+/// always meaningful: cities and `anywhereInIndia` decide which PLACES pass, and
+/// the three remote flags decide which kinds of REMOTE pass. See
+/// src/config/locations.ts, which is the only place these become a filter.
+model JobPreference {
+  userId String @id
+
+  /// City ids from src/config/india-cities.ts, e.g. ["bengaluru", "delhi-ncr"].
+  ///
+  /// IDS, NOT MATCH TERMS. "Delhi NCR" is one choice a person makes and six words
+  /// a posting might use (new delhi, gurgaon, gurugram, noida, faridabad,
+  /// ghaziabad); storing the words would freeze today's spelling list into every
+  /// row, so adding an alias later would require a data migration instead of a
+  /// one-line edit to the catalogue.
+  ///
+  /// Kept even while `anywhereInIndia` is on, so turning that off restores the
+  /// list the candidate had chosen rather than an empty screen.
+  cities String[]
+
+  /// Any location in India passes, whatever the city.
+  ///
+  /// When true the city list is not consulted. This is not the same as ticking
+  /// every city in the catalogue: the catalogue is a list of places worth offering
+  /// as choices, and India has hundreds of towns that are not on it.
+  anywhereInIndia Boolean @default(false)
+
+  /// A remote role that states India. Almost always wanted, hence the default.
+  remoteIndia Boolean @default(true)
+
+  /// A remote role that names no country at all.
+  ///
+  /// Default true because Indian postings routinely say only "Remote", and stage 3
+  /// reads the description for a timezone or work-authorisation requirement. The
+  /// cost of a false positive here is one LLM call, not an application.
+  remoteUnspecified Boolean @default(true)
+
+  /// A remote role that states a region the candidate is not in - "Remote, USA".
+  ///
+  /// DEFAULT FALSE, and the one flag that should stay off unless it is meant.
+  /// PLAN-v2's measurement: 509 postings tagged remote were not India-eligible,
+  /// and "Remote - US" is not a remote job, it is a job in the US that needs a
+  /// visa. Some employers do hire from India this way, which is why the switch
+  /// exists at all.
+  remoteOutsideIndia Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("job_preferences")
+}
+
 model ApplicationAnswers {
   userId String @id
 

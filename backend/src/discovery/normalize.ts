@@ -19,9 +19,18 @@ import { RemoteType } from '@prisma/client';
  * `\b` matters: without it "pune" matches inside "Puneet" and "delhi" inside
  * "New Delhi Township, Ohio". Both are real string-matching failures, and the
  * cost of getting them wrong is a job in the wrong country entering the pool.
+ * It is also what makes `ind` safe to list - the word boundary is the only reason
+ * it does not fire on "Indiana", "Bangalore, India" or "Independence, Missouri".
+ *
+ * `ind` EARNED ITS PLACE BY LOSING A POSTING. Zscaler writes "Mohali, IND", and
+ * with `india` alone that string named no country: remoteType returned UNKNOWN and
+ * the funnel dropped a Bengaluru-adjacent backend role for having an unrecognised
+ * location. The list is deliberately wider than the four cities in
+ * config/targets.yaml, because this function answers "is this in India" - which is
+ * a fact - and the config answers "is this wanted", which is a preference.
  */
 export const IN_LOCATION =
-  /\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|new delhi|delhi|gurgaon|gurugram|noida|chennai|kolkata|bhubaneswar|ahmedabad|jaipur|indore|kochi|coimbatore|trivandrum|thiruvananthapuram)\b/i;
+  /\b(india|ind|bharat|bengaluru|bangalore|hyderabad|pune|mumbai|navi mumbai|thane|new delhi|delhi|gurgaon|gurugram|noida|faridabad|ghaziabad|chennai|kolkata|bhubaneswar|ahmedabad|gandhinagar|jaipur|indore|kochi|cochin|coimbatore|trivandrum|thiruvananthapuram|chandigarh|mohali|nagpur|vadodara|mysuru|mysore|visakhapatnam|vizag|lucknow)\b/i;
 
 const OTHER_REGION =
   /\b(us|usa|united states|canada|emea|uk|united kingdom|europe|latam|brazil|germany|singapore|australia|japan|apac)\b/i;

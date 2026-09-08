@@ -14,15 +14,18 @@ import {
 import { api, type UserOverview } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { relativeTime } from '@/lib/utils';
+import { LocationsCard } from './locations';
 
 /**
- * Read-only. Application answers are phase 6, and resumes have their own screen
+ * Mostly read-only. Application answers are phase 6, and resumes have their own screen
  * now - uploading, choosing the one in use and editing its pieces all live under
  * /app/resumes, because that is three actions on a list rather than one field on
  * an account page.
  *
- * What is left here is the account itself and the trust boundaries, which are
- * worth stating on their own screen regardless of what is wired up.
+ * What is left here is the account itself, where the candidate is willing to work
+ * (locations.tsx - the one thing on this page that is written) and the trust
+ * boundaries, which are worth stating on their own screen regardless of what is
+ * wired up.
  */
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -124,6 +127,12 @@ export default function ProfilePage() {
             </div>
           </Card>
         )}
+
+        {/* The one setting on this screen that is editable, and the only one that
+            changes what the daily run looks at. It lives here rather than on a screen
+            of its own because it is the same kind of thing as the answers below:
+            something only the candidate can state. */}
+        <LocationsCard />
 
         <Card>
           <CardHeader
