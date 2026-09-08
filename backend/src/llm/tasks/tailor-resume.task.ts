@@ -131,7 +131,11 @@ export const TailorOutputSchema = z.object({
 
 export type TailorOutput = z.infer<typeof TailorOutputSchema>;
 
-export const tailorResumeTask: LlmTask<TailorShared, TailorInput, TailorOutput> = {
+export const tailorResumeTask: LlmTask<
+  TailorShared,
+  TailorInput,
+  TailorOutput
+> = {
   name: 'tailor-resume',
   tier: 'deep',
   // A full resume's worth of rewrites plus a cover letter. Room to spare: the
@@ -141,14 +145,31 @@ export const tailorResumeTask: LlmTask<TailorShared, TailorInput, TailorOutput> 
   schema: TailorOutputSchema,
 
   instruction:
-    'You tailor one candidate\'s resume to one job posting. You are given the ' +
-    'candidate\'s resume broken into atoms, each with an id, and then the posting.\n\n' +
+    "You tailor one candidate's resume to one job posting. You are given the " +
+    "candidate's resume broken into atoms, each with an id, and then the posting.\n\n" +
     'You select which atoms belong on the resume for this posting, and you may ' +
     'rewrite the text of any of them. You cite the atom id for every piece of ' +
     'text you produce.\n\n' +
     'You are not writing a persuasive document. You are choosing and rephrasing ' +
     'true statements. A resume that overstates gets the candidate into an ' +
-    'interview they then fail, which is worse than not getting the interview.',
+    'interview they then fail, which is worse than not getting the interview.\n\n' +
+    // The schema's own limits, restated. Nothing enforces a maxLength during
+    // generation on either provider (both drop the keyword - see jsonSchemaOf), so
+    // an unstated limit is one that gets broken, and here breaking it throws away a
+    // whole Opus tailoring call. The numbers are resume-shaped anyway: a bullet
+    // nobody reads is not worth the line it takes.
+    'Lengths, which are hard limits:\n' +
+    '- Each rewritten bullet: under 400 characters. One or two lines on the page.\n' +
+    '- headline: one line, under 160 characters, and NO DIGITS. Not a year, not ' +
+    'a grade like "Engineer - 1", not a metric. Name the discipline and the ' +
+    'technologies. Two measured runs died here: the model copied the ' +
+    "candidate's real job level into the headline, the checker had no metric to " +
+    'match the "1" against, and a whole tailoring call was discarded over a ' +
+    'figure that says nothing to a reader anyway - a grade does not transfer ' +
+    'between companies.\n' +
+    '- coverLetter: under 2500 characters, or "" if the posting gives you nothing ' +
+    'specific to say. An empty one is a decision, not an omission.\n' +
+    '- At most 30 selected atoms and 30 rewrites.',
 
   prefix(shared) {
     const atoms = shared.atoms

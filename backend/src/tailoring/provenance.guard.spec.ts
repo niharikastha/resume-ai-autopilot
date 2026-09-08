@@ -72,7 +72,10 @@ function output(overrides: Partial<TailorOutput> = {}): TailorOutput {
   };
 }
 
-function check(overrides: Partial<TailorOutput> = {}, input: Partial<GuardInput> = {}) {
+function check(
+  overrides: Partial<TailorOutput> = {},
+  input: Partial<GuardInput> = {},
+) {
   return checkProvenance({
     atoms: ATOMS,
     allowedTech: ALLOWED_TECH,
@@ -146,7 +149,10 @@ describe('the honest rewrite', () => {
     // is never the failure this guard exists to prevent.
     const report = check({
       rewrites: [
-        { atomId: 'atom-1', text: 'Moved document parsing onto worker threads.' },
+        {
+          atomId: 'atom-1',
+          text: 'Moved document parsing onto worker threads.',
+        },
       ],
     });
     expect(report.passed).toBe(true);
@@ -181,7 +187,9 @@ describe('the honest rewrite', () => {
     // SkillsReserve is typed by a human, so "nodejs" and "node js" arrive. If the
     // set were compared raw, an enabled reserve skill would still be rejected.
     const report = check(
-      { rewrites: [{ atomId: 'atom-1', text: 'Wrote the parser in Node.js.' }] },
+      {
+        rewrites: [{ atomId: 'atom-1', text: 'Wrote the parser in Node.js.' }],
+      },
       { allowedTech: ['nodejs', 'worker_threads'] },
     );
     expect(report.passed).toBe(true);
@@ -190,13 +198,39 @@ describe('the honest rewrite', () => {
 
 describe('the number rule', () => {
   it('refuses a number the atom has no metric for at all', () => {
+    // atom-3 with its dates stripped, so there is genuinely nothing to compare
+    // against - that is the branch of the message this test is about. With the
+    // dateRange left on, the years in it are legitimately available (see the
+    // year tests below) and the message says so instead.
+    const report = check(
+      {
+        rewrites: [
+          {
+            atomId: 'atom-3',
+            text: 'Owned the deployment pipeline for 12 services.',
+          },
+        ],
+      },
+      { atoms: [ATOMS[0], ATOMS[1], { ...ATOMS[2], dateRange: null }] },
+    );
+    expect(kinds(report)).toEqual(['invented-number']);
+    expect(report.violations[0].detail).toContain('no metrics at all');
+  });
+
+  it('still refuses an invented number when only the dates are available', () => {
     const report = check({
       rewrites: [
-        { atomId: 'atom-3', text: 'Owned the deployment pipeline for 12 services.' },
+        {
+          atomId: 'atom-3',
+          text: 'Owned the deployment pipeline for 12 services.',
+        },
       ],
     });
     expect(kinds(report)).toEqual(['invented-number']);
-    expect(report.violations[0].detail).toContain('no metrics at all');
+    expect(report.violations[0].found).toBe('12');
+    // The message lists what IS available, which is the date range's year and
+    // nothing else - a headcount is not licensed by a date.
+    expect(report.violations[0].detail).toContain('2023');
   });
 
   it('refuses a changed unit: 40% does not license 40x', () => {
@@ -217,7 +251,10 @@ describe('the number rule', () => {
   it('allows dropping the + from "10,000+", which understates', () => {
     const report = check({
       rewrites: [
-        { atomId: 'atom-2', text: 'Built a pipeline serving 10,000 records a day.' },
+        {
+          atomId: 'atom-2',
+          text: 'Built a pipeline serving 10,000 records a day.',
+        },
       ],
     });
     expect(report.passed).toBe(true);
@@ -226,16 +263,10 @@ describe('the number rule', () => {
   it('refuses ADDING a + that the atom does not claim', () => {
     const report = check(
       {
-        rewrites: [
-          { atomId: 'atom-2', text: 'Served 10,000+ records a day.' },
-        ],
+        rewrites: [{ atomId: 'atom-2', text: 'Served 10,000+ records a day.' }],
       },
       {
-        atoms: [
-          ATOMS[0],
-          { ...ATOMS[1], metrics: ['10,000'] },
-          ATOMS[2],
-        ],
+        atoms: [ATOMS[0], { ...ATOMS[1], metrics: ['10,000'] }, ATOMS[2]],
       },
     );
     expect(kinds(report)).toEqual(['invented-number']);
@@ -263,6 +294,83 @@ describe('the number rule', () => {
     });
     expect(kinds(report)).toEqual(['invented-number', 'invented-number']);
     expect(report.violations.map((v) => v.found)).toEqual(['85%', '4']);
+  });
+});
+
+/**
+ * Dates, which are the one place the number rule was measurably too strict.
+ *
+ * `tailorResumeTask.prefix` prints `dates: Jun 2023 - Dec 2023` on every atom, so a
+ * cover letter that said "since 2023" was rejected as an invented figure - the guard
+ * throwing away a whole Opus call over a number the prompt itself supplied. These
+ * tests pin both halves: the year is allowed, and allowing it did not open a door.
+ */
+describe('dates as figures', () => {
+  it("allows a rewrite restating the year from the atom's own date range", () => {
+    const report = check({
+      rewrites: [
+        {
+          atomId: 'atom-3',
+          text: 'Owned the deployment pipeline and on-call rotation from 2023.',
+        },
+      ],
+    });
+    expect(report.passed).toBe(true);
+  });
+
+  it('allows a cover letter citing a year - the measured false positive', () => {
+    const report = check({
+      coverLetter:
+        'I have been building document pipelines at Merqube since 2024, and before ' +
+        'that spent 2023 on healthcare ingestion.',
+    });
+    expect(report.passed).toBe(true);
+  });
+
+  it('refuses a year no atom worked in', () => {
+    const report = check({
+      coverLetter: 'I have been building document pipelines since 2019.',
+    });
+    expect(kinds(report)).toEqual(['invented-number']);
+    expect(report.violations[0].found).toBe('2019');
+  });
+
+  it('does not let a year license the same value with a unit', () => {
+    // The whole point of keeping yearsIn to bare values: 2024 as a date must not
+    // become 2024% of anything, which supportsNumber only refuses if the unit is
+    // still compared.
+    const report = check({
+      rewrites: [{ atomId: 'atom-1', text: 'Cut ingestion latency by 2024%.' }],
+    });
+    expect(kinds(report)).toEqual(['invented-number']);
+    expect(report.violations[0].found).toBe('2024%');
+  });
+
+  it('does not license a non-year number written inside a date range', () => {
+    // "03/2024" contains a 3. A date range is allowed to license WHEN, not how
+    // many, so the month must not quietly become a headcount.
+    const report = check(
+      {
+        selectedAtomIds: ['atom-1'],
+        rewrites: [
+          { atomId: 'atom-1', text: 'Led a team of 3 on the parser.' },
+        ],
+      },
+      { atoms: [{ ...ATOMS[0], metrics: [], dateRange: '03/2024 - Present' }] },
+    );
+    expect(kinds(report)).toEqual(['invented-number']);
+    expect(report.violations[0].found).toBe('3');
+  });
+
+  it('ignores a date range on an atom this resume did not select', () => {
+    // The cover letter is scoped to the selection, and a year is no different: a
+    // date from work the reader cannot see is not evidence for anything.
+    const report = check({
+      selectedAtomIds: ['atom-1'],
+      coverLetter: 'I worked on healthcare ingestion through 2023.',
+    });
+    expect(kinds(report)).toEqual(['invented-number']);
+    expect(report.violations[0].found).toBe('2023');
   });
 });
 
@@ -344,12 +452,17 @@ describe('employer attribution', () => {
 
 describe('the headline and the cover letter', () => {
   it('checks the headline for invented tech', () => {
-    const report = check({ headline: 'Backend engineer, Kafka and Kubernetes' });
+    const report = check({
+      headline: 'Backend engineer, Kafka and Kubernetes',
+    });
     expect(report.passed).toBe(false);
     expect(report.violations.every((v) => v.site === 'headline')).toBe(true);
     // Dictionary order, not text order - techIn is deliberately stable so that two
     // atoms naming the same pair of tools produce identical arrays.
-    expect(report.violations.map((v) => v.found)).toEqual(['Kafka', 'Kubernetes']);
+    expect(report.violations.map((v) => v.found)).toEqual([
+      'Kafka',
+      'Kubernetes',
+    ]);
   });
 
   it('checks the cover letter for invented numbers', () => {
@@ -389,7 +502,10 @@ describe('the report itself', () => {
   it('counts what it looked at, so an empty report is distinguishable from a skipped one', () => {
     const report = check({
       rewrites: [
-        { atomId: 'atom-1', text: 'Raised ingestion throughput 65% on Node.js.' },
+        {
+          atomId: 'atom-1',
+          text: 'Raised ingestion throughput 65% on Node.js.',
+        },
         { atomId: 'atom-2', text: 'Served 10,000+ records a day.' },
       ],
     });

@@ -12,6 +12,9 @@ const COMMANDS: Record<string, () => Promise<unknown>> = {
   'companies:sweep': () => import('./cli/sweep-companies'),
   'profile:ingest': () => import('./cli/profile-ingest'),
   'profile:embed': () => import('./cli/profile-embed'),
+  'skills:list': () => import('./cli/skills'),
+  'skills:add': () => import('./cli/skills'),
+  'skills:remove': () => import('./cli/skills'),
   match: () => import('./cli/match'),
   tailor: () => import('./cli/tailor'),
 };
@@ -39,6 +42,15 @@ commands:
   profile:embed     [--user <email>] [--all]
                     compute missing atom vectors for an already-confirmed
                     profile. Repair only; ingest normally does this itself.
+  skills:list       [--user <email>]
+  skills:add        --skill "TypeScript, Python" [--user <email>] [--staged]
+                    [--note <why>]
+  skills:remove     --skill "Kafka" [--user <email>]
+                    skills the candidate has that the resume never tagged. The
+                    provenance guard discards a tailored resume that names
+                    anything outside the resume's own tech tags plus these, so
+                    this is what its "add it to SkillsReserve" message means.
+                    New rows are ENABLED unless --staged.
   match             [--dry-run] [--user <email>] [--top <n>] [--limit <n>]
                     [--budget <n>] [--mode auto|batch|inline]
                     run the four-stage funnel and print the shortlist. Start

@@ -36,7 +36,7 @@
  *     confirmation gate is for, and it is why `provenanceReport` is retained on
  *     PASS as well as on failure - the report is what a person reads.
  */
-import { numbersIn, supportsNumber } from '../profile/numbers';
+import { FoundNumber, numbersIn, supportsNumber } from '../profile/numbers';
 import { canonicalise, techIn } from '../profile/tech';
 import type { TailorOutput } from '../llm/tasks/tailor-resume.task';
 
@@ -48,7 +48,8 @@ import type { TailorOutput } from '../llm/tasks/tailor-resume.task';
  * writes and is where drift shows up first, while a `rewrite` violation is the model
  * ignoring an explicit rule about a specific atom.
  */
-export type ViolationSite = 'selection' | 'rewrite' | 'headline' | 'coverLetter';
+export type ViolationSite =
+  'selection' | 'rewrite' | 'headline' | 'coverLetter';
 
 export type ViolationKind =
   /** Cites an atom id that is not in this profile. */
@@ -142,6 +143,39 @@ function normalizeUnits(text: string): string {
 }
 
 /**
+ * The years in an atom's date range, which count as figures the source states.
+ *
+ * MEASURED FALSE POSITIVE, not a hypothetical one: `tailorResumeTask.prefix` shows
+ * the model `dates: 2024-2025` on every atom, and a cover letter that then says
+ * "since 2024" was rejected as an invented number - throwing away an entire Opus
+ * tailoring call over a figure the prompt itself supplied. A guard that rejects what
+ * it just handed over is not being strict, it is being wrong, and every false
+ * positive is an application that goes out on the base resume for no reason.
+ *
+ * This widens what is permitted, so it is kept as narrow as it can be:
+ *
+ *   - YEARS only, 1900-2100, and only from `dateRange` - never from atom text, which
+ *     is full of numbers that are claims rather than dates.
+ *   - Bare values only. `supportsNumber` compares the unit too, so a licensed 2024
+ *     does not license "2024%" or "2024x", and a dateRange written "03/2024" does
+ *     not quietly license a bare "3" as a headcount.
+ *
+ * A rewrite can therefore restate WHEN something happened, and still cannot invent
+ * anything about how much or how many.
+ */
+function yearsIn(dateRange: string | null | undefined): FoundNumber[] {
+  if (!dateRange) return [];
+  return numbersIn(dateRange).filter(
+    (n) =>
+      n.unit === '' &&
+      !n.atLeast &&
+      Number.isInteger(n.value) &&
+      n.value >= 1900 &&
+      n.value <= 2100,
+  );
+}
+
+/**
  * Checks one piece of text for numbers not supported by a set of atoms.
  *
  * Takes a SET of atoms rather than one, because the two callers differ: a rewrite is
@@ -161,9 +195,10 @@ function checkNumbers(
   // rather than reimplemented here - see the header of profile/numbers.ts. If the
   // metrics were extracted by one set of rules and checked by another, the guard
   // would reject honest rewrites and pass invented ones.
-  const supported = sources.flatMap((atom) =>
-    atom.metrics.flatMap((metric) => numbersIn(normalizeUnits(metric))),
-  );
+  const supported = sources.flatMap((atom) => [
+    ...atom.metrics.flatMap((metric) => numbersIn(normalizeUnits(metric))),
+    ...yearsIn(atom.dateRange),
+  ]);
 
   const claims = numbersIn(normalizeUnits(text));
   for (const claim of claims) {
@@ -335,7 +370,8 @@ export function checkProvenance(input: GuardInput): ProvenanceReport {
     const own = atom.employer?.trim().toLowerCase();
     for (const employer of employers) {
       if (employer.toLowerCase() === own) continue;
-      if (!rewrite.text.toLowerCase().includes(employer.toLowerCase())) continue;
+      if (!rewrite.text.toLowerCase().includes(employer.toLowerCase()))
+        continue;
       violations.push({
         kind: 'moved-employer',
         site: 'rewrite',

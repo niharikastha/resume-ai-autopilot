@@ -14,15 +14,23 @@
  *   HL7/FHIR              the 7 is part of a standard's name
  *   Log4j, S3, EC2, H100  digits inside a product name
  *   Node.js 20, Python 3  a version
- *   Engineer - 1          a job level
+ *   SDE-1, GPT-4, Llama-3 a hyphenated name or job level
  *
  * A `\d+` scan treats all of those as achievements, and every one it adds to
  * `metrics` is a number the guard will then permit in a tailored bullet. So the
  * rule is deliberately narrow: a digit run is a number only when a letter is not
- * touching it on either side. That drops HL7 and S3, keeps 65%, 10,000+, 10K+
- * and 99.9%, and keeps 2024 - a year is a number that genuinely appears in the
- * text, and the guard's question is "did this figure come from the atom", not
- * "is this figure impressive".
+ * touching it on either side, DIRECTLY OR THROUGH A HYPHEN. That drops HL7 and
+ * S3, keeps 65%, 10,000+, 10K+ and 99.9%, and keeps 2024 - a year is a number
+ * that genuinely appears in the text, and the guard's question is "did this
+ * figure come from the atom", not "is this figure impressive".
+ *
+ * A SPACED hyphen is not covered, and that asymmetry is deliberate. "Reduced p99
+ * latency - 40%" is how a resume introduces a metric, and refusing to read the
+ * 40% there would be the expensive kind of mistake: the figure would be missing
+ * from the atom's metrics, so a rewrite that restated it honestly would be
+ * rejected. "Engineer - 1" written that way therefore does still register as a
+ * bare 1, which only ever widens what the guard permits for that one atom, and
+ * the candidate sees it in the metrics list at the confirmation gate.
  */
 
 /**
@@ -56,6 +64,12 @@ const SUFFIX: Record<string, number> = { k: 1e3, m: 1e6, b: 1e9 };
  *   (?<![A-Za-z0-9.])   nothing lettery before it, and no digit or dot either -
  *                       the dot stops "99.9" from also yielding a bare ".9", and
  *                       stops "v1.2.3" from producing three numbers.
+ *   (?<![A-Za-z]-)      and not a letter joined by a hyphen either, which is what
+ *                       rejects the 1 in SDE-1 and the 4 in GPT-4. MEASURED, not
+ *                       hypothetical: a tailored headline copied the candidate's
+ *                       real job title "Hyscaler SDE-1" and the guard threw the
+ *                       whole variant away over the 1. Digit-hyphen-digit is
+ *                       untouched, so the "2024" in "2023-2024" still reads.
  *   \d[\d,]*(?:\.\d+)?  digits with thousands separators, optional decimal.
  *   (?:\s?[KkMmBb])?    an optional magnitude suffix, with or without a space.
  *   \+?                 the "at least" marker.
@@ -68,7 +82,7 @@ const SUFFIX: Record<string, number> = { k: 1e3, m: 1e6, b: 1e9 };
  * ends in a letter, and a lookahead applied to "10" alone would reject it.
  */
 const NUMBER =
-  /(?<![A-Za-z0-9.])(\d[\d,]*(?:\.\d+)?)(\s?[KkMmBb])?(\+)?(\s?%|\s?x(?![A-Za-z]))?(?![A-Za-z0-9])/g;
+  /(?<![A-Za-z0-9.])(?<![A-Za-z]-)(\d[\d,]*(?:\.\d+)?)(\s?[KkMmBb])?(\+)?(\s?%|\s?x(?![A-Za-z]))?(?![A-Za-z0-9])/g;
 
 /**
  * Every number in a piece of text, in order, deduped by surface form.

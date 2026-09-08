@@ -22,7 +22,11 @@ describe('numbersIn', () => {
 
   it('applies a K/M/B suffix to the value', () => {
     const [ten] = numbersIn('handle 10K+ CSV records daily');
-    expect(ten).toMatchObject({ surface: '10K+', value: 10_000, atLeast: true });
+    expect(ten).toMatchObject({
+      surface: '10K+',
+      value: 10_000,
+      atLeast: true,
+    });
     expect(numbersIn('2.5M requests')[0].value).toBe(2_500_000);
   });
 
@@ -35,6 +39,24 @@ describe('numbersIn', () => {
     expect(metricsIn('stored objects in S3 and ran on EC2')).toEqual([]);
     expect(metricsIn('patched Log4j')).toEqual([]);
     expect(metricsIn('trained on H100s')).toEqual([]);
+  });
+
+  it('ignores digits a hyphen joins to a name', () => {
+    // MEASURED. A tailored headline copied this candidate's real job title,
+    // "Hyscaler SDE-1", and the guard discarded the whole variant over the 1 -
+    // the checker calling a byte-for-byte copy of the source a fabrication. The
+    // model names are the same shape and would fail the same way.
+    expect(metricsIn('Hyscaler SDE-1')).toEqual([]);
+    expect(metricsIn('built on GPT-4 and Llama-3')).toEqual([]);
+    expect(metricsIn('during COVID-19')).toEqual([]);
+  });
+
+  it('still reads a number after a digit-hyphen, so a year range survives', () => {
+    // Only a LETTER before the hyphen suppresses the match. "2023-2024" is a
+    // range of two real figures, and the guard now licenses years from an atom's
+    // date range - so losing the second one here would put the false positive
+    // straight back.
+    expect(metricsIn('2023-2024')).toEqual(['2023', '2024']);
   });
 
   it('does not split a version into three numbers', () => {
