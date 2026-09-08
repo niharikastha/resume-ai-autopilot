@@ -19,6 +19,7 @@ const COMMANDS: Record<string, () => Promise<unknown>> = {
   match: () => import('./cli/match'),
   tailor: () => import('./cli/tailor'),
   submit: () => import('./cli/submit'),
+  digest: () => import('./cli/digest'),
 };
 
 const command = process.argv[2];
@@ -82,6 +83,12 @@ commands:
                     what the session would consist of without opening anything.
                     A submission is only recorded when the employer's own
                     confirmation is found on the page afterwards.
+  digest            [--user <email>] [--all] [--send] [--resend]
+                    build this morning's digest and print it. The 09:00 IST cron
+                    runs exactly this. Without --send nothing is emailed, but the
+                    digest IS stored - the row is the digest and the email is a
+                    copy of it. --resend mails a morning that has been mailed
+                    already, which the cron will not do.
 
 The three discovery commands need DISCOVERY_CONTACT_EMAIL set in .env - every
 outbound request carries a contact address so a site operator can reach a human.

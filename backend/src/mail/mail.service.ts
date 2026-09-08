@@ -159,6 +159,18 @@ export class MailService {
     };
   }
 
+  /**
+   * The morning digest.
+   *
+   * The subject and both bodies are built by src/notify/digest.text.ts and passed in
+   * whole. That file renders the same digest for Telegram and for the CLI, so keeping
+   * the wording there means the email cannot drift from what the other two channels
+   * say - and this method stays what the rest of this class is: an envelope.
+   */
+  dailyDigest(to: string, subject: string, text: string, html: string): Mail {
+    return { to, subject, text, html };
+  }
+
   accountApproved(to: string, name: string, url: string): Mail {
     return {
       to,

@@ -13,7 +13,13 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { CommandPalette } from './command-palette';
-import { ADMIN_NAV, CANDIDATE_NAV, isNavActive, type NavItem } from './nav';
+import {
+  ADMIN_NAV,
+  CANDIDATE_NAV,
+  isNavActive,
+  MOBILE_NAV,
+  type NavItem,
+} from './nav';
 import { Spinner } from './ui';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
@@ -123,7 +129,9 @@ function NavSection({
  * The sidebar is `hidden md:flex`, and for a while nothing replaced it below that
  * breakpoint - the whole app was unreachable on a phone except by typing URLs.
  * Four candidate destinations fit comfortably; the admin section collapses to a
- * single tab, because five tabs of 20% width start truncating labels.
+ * single tab, because five tabs of 20% width start truncating labels. WHICH four is
+ * decided in nav.ts by MOBILE_NAV rather than by slicing the sidebar's list, so adding
+ * a route to the sidebar no longer changes the tab bar behind anyone's back.
  *
  * pb-[env(safe-area-inset-bottom)] keeps the row above the iOS home indicator.
  */
@@ -135,8 +143,8 @@ function MobileTabs({
   isAdmin: boolean;
 }) {
   const items: NavItem[] = isAdmin
-    ? [...CANDIDATE_NAV.slice(0, 3), { ...ADMIN_NAV[0]!, label: 'Admin' }]
-    : CANDIDATE_NAV;
+    ? [...MOBILE_NAV.slice(0, 3), { ...ADMIN_NAV[0]!, label: 'Admin' }]
+    : MOBILE_NAV;
 
   return (
     <nav

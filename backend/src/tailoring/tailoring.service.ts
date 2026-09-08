@@ -18,7 +18,7 @@
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AtomKind, MatchVerdict, Prisma } from '@prisma/client';
+import { AtomKind, MatchDecision, MatchVerdict, Prisma } from '@prisma/client';
 import { LLM_PROVIDER, type LlmProvider } from '../llm/llm.types';
 import {
   tailorResumeTask,
@@ -35,7 +35,11 @@ import {
   type DocumentAtom,
   type ResumeContact,
 } from './resume.document';
-import { checkProvenance, summarize, type ProvenanceReport } from './provenance.guard';
+import {
+  checkProvenance,
+  summarize,
+  type ProvenanceReport,
+} from './provenance.guard';
 import { renderResume } from './resume.render';
 
 /**
@@ -382,6 +386,11 @@ export class TailoringService {
         verdict: { in: TAILORABLE },
         // Never tailor for a posting the employer has taken down.
         job: { closedAt: null },
+        // Nor for one the candidate said no to in the morning digest. This is the
+        // saving phase 7 exists for: the rejection costs one row update and lands
+        // BEFORE the deep-tier call that writing a resume needs. WANTED and
+        // UNDECIDED both pass - an unopened digest must not stop the pipeline.
+        decision: { not: MatchDecision.NOT_WANTED },
       },
       include: { job: { include: { company: true } } },
       orderBy: { score: 'desc' },
@@ -398,7 +407,10 @@ export class TailoringService {
       : new Set(
           (
             await this.prisma.resumeVariant.findMany({
-              where: { jobId: { in: scores.map((s) => s.jobId) }, guardPassed: true },
+              where: {
+                jobId: { in: scores.map((s) => s.jobId) },
+                guardPassed: true,
+              },
               select: { jobId: true },
             })
           ).map((v) => v.jobId),
@@ -507,7 +519,7 @@ export class TailoringService {
           selectedAtomIds: output.selectedAtomIds,
           rewrites: output.rewrites,
           headline: output.headline,
-        } as Prisma.InputJsonValue,
+        },
         // Only when it passed. A cover letter that cites an invented figure must not
         // sit in the database where phase 6 would find it and attach it.
         coverLetter: report.passed ? output.coverLetter || null : null,

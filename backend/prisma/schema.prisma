@@ -60,7 +60,7 @@ model User {
   passwordHash String
 
   /// Whether this account may sign in AT ALL. Self-signup creates it false.
-  active      Boolean   @default(true)
+  active Boolean @default(true)
 
   /// When an admin let a self-signed-up account in, and who did it.
   ///
@@ -81,13 +81,14 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  sessions       Session[]
-  passwordResets PasswordReset[]
-  profiles       CandidateProfile[]
-  skillsReserve  SkillsReserve[]
-  matchScores    MatchScore[]
-  applications   Application[]
-  answers        ApplicationAnswers?
+  sessions        Session[]
+  passwordResets  PasswordReset[]
+  profiles        CandidateProfile[]
+  skillsReserve   SkillsReserve[]
+  matchScores     MatchScore[]
+  applications    Application[]
+  answers         ApplicationAnswers?
+  digests         DailyDigest[]
   settingsTouched AppSetting[]
 
   @@index([role])
@@ -113,15 +114,15 @@ model User {
 /// migration adds and never drops. Renaming them would have bought a tidier
 /// dump for a destructive migration, which is a bad trade.
 model Session {
-  id               String   @id @default(uuid())
+  id               String @id @default(uuid())
   /// SHA-256 of the refresh cookie. The raw token is never stored, so a database
   /// dump does not hand over live sessions.
-  refreshTokenHash String   @unique @map("tokenHash")
+  refreshTokenHash String @unique @map("tokenHash")
   userId           String
 
   /// Shared by every rotation descending from one login. This is the unit of
   /// revocation, not the individual row.
-  familyId         String
+  familyId String
 
   /// Sliding window. Extended on each refresh, but never past absoluteExpiresAt.
   refreshExpiresAt DateTime @map("expiresAt")
@@ -211,8 +212,8 @@ model AppSetting {
   /// delete the setting. It was an unconstrained String before, which meant it
   /// could hold an id belonging to nobody - "who changed this?" answerable only
   /// by a lookup that returns nothing.
-  updatedBy String?
-  updatedByUser User? @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+  updatedBy     String?
+  updatedByUser User?   @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
 
   @@index([updatedBy])
   @@map("app_settings")
@@ -261,7 +262,7 @@ model ApplicationAnswers {
 /// Canonical truth about the candidate. The atom list is the ONLY thing
 /// tailoring may draw from - see ResumeVariant and PLAN-v2 phase 5.
 model CandidateProfile {
-  id        String   @id @default(uuid())
+  id        String  @id @default(uuid())
   userId    String
   /// e.g. "primary". Unique PER USER, not globally - two candidates both
   /// naming their profile "primary" is normal.
@@ -297,7 +298,7 @@ model CandidateProfile {
   /// cannot express - `@@unique([userId, isActive])` would instead permit exactly
   /// one INACTIVE resume, the opposite of the rule). Zero is legal: a candidate
   /// mid-upload with nothing confirmed has no active resume.
-  isActive         Boolean   @default(false)
+  isActive Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -466,14 +467,14 @@ enum ProbeResult {
 /// enough to be the primary list-growth technique - but only if attempts are
 /// remembered.
 model CompanyProbe {
-  id        String      @id @default(uuid())
-  slugTried String
-  atsType   AtsType
-  result    ProbeResult
+  id         String      @id @default(uuid())
+  slugTried  String
+  atsType    AtsType
+  result     ProbeResult
   httpStatus Int?
-  jobsFound Int?
-  notes     String?
-  probedAt  DateTime    @default(now())
+  jobsFound  Int?
+  notes      String?
+  probedAt   DateTime    @default(now())
 
   @@unique([slugTried, atsType])
   @@index([result])
@@ -483,15 +484,15 @@ model CompanyProbe {
 /// Per-connector run log. Makes a silently-dead connector visible, which is the
 /// main failure mode of depending on undocumented endpoints.
 model SourceRun {
-  id            String    @id @default(uuid())
-  source        String
-  startedAt     DateTime  @default(now())
-  finishedAt    DateTime?
-  companiesTried Int      @default(0)
-  postingsSeen  Int       @default(0)
-  postingsNew   Int       @default(0)
-  errors        Int       @default(0)
-  errorSample   Json?
+  id             String    @id @default(uuid())
+  source         String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  companiesTried Int       @default(0)
+  postingsSeen   Int       @default(0)
+  postingsNew    Int       @default(0)
+  errors         Int       @default(0)
+  errorSample    Json?
 
   @@index([source, startedAt])
   @@map("source_runs")
@@ -539,8 +540,8 @@ model JobPosting {
 
   title           String
   normalizedTitle String
-  descriptionRaw  String  @db.Text
-  descriptionText String  @db.Text
+  descriptionRaw  String @db.Text
+  descriptionText String @db.Text
 
   location   String?
   remoteType RemoteType @default(UNKNOWN)
@@ -583,13 +584,13 @@ model JobPosting {
   /// which is the state a raw-SQL write that forgot this column would create.
   embeddedContentHash String?
 
-  firstSeenAt DateTime @default(now())
-  lastSeenAt  DateTime @updatedAt
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @updatedAt
   closedAt    DateTime?
 
-  company      Company?      @relation(fields: [companyId], references: [id])
-  matchScores  MatchScore[]
-  applications Application[]
+  company        Company?        @relation(fields: [companyId], references: [id])
+  matchScores    MatchScore[]
+  applications   Application[]
   resumeVariants ResumeVariant[]
 
   @@unique([source, sourceJobId])
@@ -612,11 +613,30 @@ enum MatchVerdict {
   REJECT
 }
 
+/// The candidate's own answer to a scored posting, collected by the morning
+/// digest (phase 7).
+///
+/// THIS IS NOT AN ApplicationStatus, and it deliberately does not live on the
+/// Application table. Saying "not for me" from a phone at breakfast is an
+/// opinion about a posting; it is not an application, and writing one would put
+/// a row in the table that answers "what did we send" describing something that
+/// was never sent. It also has to be recorded BEFORE an Application exists,
+/// because the entire saving is skipping the tailoring call that would create
+/// one.
+///
+/// UNDECIDED is the default and behaves like WANTED everywhere: an unread digest
+/// must never stop the pipeline. Only NOT_WANTED subtracts.
+enum MatchDecision {
+  UNDECIDED
+  WANTED
+  NOT_WANTED
+}
+
 /// A score is profile-x-job, so it is per-user. The same posting can be STRONG
 /// for one candidate and REJECT for another; a shared score table would be
 /// meaningless.
 model MatchScore {
-  id      String @id @default(uuid())
+  id      String       @id @default(uuid())
   userId  String
   jobId   String
   score   Int /// 0-100
@@ -637,7 +657,17 @@ model MatchScore {
   model       String
 
   vectorDistance Float?
-  scoredAt       DateTime @default(now())
+  scoredAt       DateTime      @default(now())
+  /// What the candidate said in the digest. Read by TailoringService.shortlist
+  /// and SubmissionService, both of which skip NOT_WANTED.
+  ///
+  /// RE-SCORING MUST NOT RESET THIS. The upsert in matching.service.ts builds its
+  /// `data` object from the scoring result only and never mentions these two
+  /// columns, so an edited posting can change the score and the verdict while the
+  /// candidate's "no" survives. A re-score that silently un-rejected a posting
+  /// would apply to something the candidate had already turned down.
+  decision       MatchDecision @default(UNDECIDED)
+  decidedAt      DateTime?
 
   user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   job  JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -649,6 +679,7 @@ model MatchScore {
   @@unique([userId, jobId])
   @@index([jobId])
   @@index([userId, score])
+  @@index([userId, decision])
   @@map("match_scores")
 }
 
@@ -765,4 +796,59 @@ model Application {
   @@index([status])
   @@index([userId, status])
   @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATIONS (phase 7)
+// ---------------------------------------------------------------------------
+
+/// One morning's summary, STORED rather than recomputed on every read.
+///
+/// Four reasons the numbers are written down instead of being a query:
+///   1. The email and the web page have to agree. A digest that is recomputed
+///      when the page loads disagrees with the mail sent two hours earlier, and
+///      the disagreement looks like a bug in the pipeline rather than in the
+///      page.
+///   2. The window. Each digest covers "since the last one" - see
+///      DigestService.windowStart - which needs the previous digest to exist as a
+///      row. Without it a missed morning is silently skipped or double-counted.
+///   3. The delivery record. Whether the mail left, whether Telegram took it, and
+///      the error if neither - that is per-send state and has nowhere else to
+///      live.
+///   4. Restart safety. `@@unique([userId, day])` means a process that dies
+///      mid-run and starts again rewrites one row instead of sending a second
+///      copy of the same morning.
+model DailyDigest {
+  id     String @id @default(uuid())
+  userId String
+
+  /// The IST calendar day this digest is FOR, as a bare date. The candidate is in
+  /// India, so "which morning is this" is a local-calendar question and storing an
+  /// instant would put the 09:00 IST run on the previous UTC day. See
+  /// DigestService.istDay.
+  day DateTime @db.Date
+
+  /// The whole rendered digest, validated on read by DigestPayloadSchema.
+  /// Versioned (`version: 1`) so a payload written by older code is recognised
+  /// and skipped rather than misread - see readPayload, which returns null
+  /// instead of throwing.
+  payload Json
+
+  /// Delivery, one stamp per channel plus the last failure. Rewriting the payload
+  /// deliberately does NOT clear these: a rebuild is not a resend.
+  emailedAt     DateTime?
+  telegramAt    DateTime?
+  deliveryError String?
+
+  /// Set when the candidate opens it in the web app. Drives the unread count in
+  /// the nav.
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+  @@map("daily_digests")
 }

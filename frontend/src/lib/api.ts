@@ -382,3 +382,87 @@ export interface Integrations {
     note: string | null;
   }[];
 }
+
+// --- the morning digest (phase 7) -------------------------------------------
+
+/** What the candidate can say about a posting from the digest. */
+export type MatchDecision = 'UNDECIDED' | 'WANTED' | 'NOT_WANTED';
+
+/**
+ * One posting as the digest names it.
+ *
+ * A SNAPSHOT, not a live row. It is whatever was true when the digest was built,
+ * which is why deciding on one of these does not remove it from the list - the
+ * page tracks the answer locally instead. A digest that quietly rewrote itself
+ * would stop being a record of a morning.
+ */
+export interface DigestMatch {
+  jobId: string;
+  title: string;
+  company: string;
+  location: string | null;
+  score: number;
+  verdict: string;
+  /** A string for the same reason as JobRow.salaryMin - it is an exact decimal. */
+  salaryLpa: string | null;
+  url: string;
+}
+
+export interface DigestPayload {
+  version: number;
+  /** The Indian calendar day this reports on, as YYYY-MM-DD. */
+  day: string;
+  generatedAt: string;
+  /** The start of the window every "since the last digest" number was counted over. */
+  since: string;
+  candidate: {
+    newMatches: number;
+    byVerdict: Record<string, number>;
+    undecided: number;
+    top: DigestMatch[];
+    tailored: number;
+    guardFailed: number;
+    /** Null, not 0, when nothing was tailored. Render it as "n/a". */
+    guardFailureRate: number | null;
+    preparedWaiting: number;
+    submitted: number;
+    missingAnswers: string[];
+  };
+  /** Admins only. Null for a plain candidate. */
+  system: {
+    newCompanies: number;
+    newPostings: number;
+    boards: {
+      source: string;
+      companiesTried: number;
+      postingsSeen: number;
+      postingsNew: number;
+      errors: number;
+    }[];
+    deadBoards: { source: string; reason: string }[];
+    /** Calls by model. Not tokens - token counts are not stored anywhere. */
+    modelUse: { model: string; calls: number }[];
+    lastDiscoveryAt: string | null;
+  } | null;
+}
+
+export interface DigestRow {
+  id: string;
+  day: string;
+  /** Null when the stored payload is from a version this build cannot read. */
+  payload: DigestPayload | null;
+  emailedAt: string | null;
+  telegramAt: string | null;
+  deliveryError: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+/** What POST /api/me/digest/send reports back. */
+export interface DigestSendResult {
+  id: string;
+  day: string;
+  email: 'sent' | 'skipped' | 'failed';
+  telegram: 'sent' | 'skipped' | 'failed';
+  notes: string[];
+}

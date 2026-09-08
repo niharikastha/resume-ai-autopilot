@@ -30,6 +30,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ApplicationStatus,
   AtsType,
+  MatchDecision,
   Prisma,
   type ApplicationAnswers,
 } from '@prisma/client';
@@ -164,7 +165,12 @@ export class SubmissionService {
     const [scores, existing, cooling] = await Promise.all([
       this.prisma.matchScore.findMany({
         where: { userId: profile.userId, jobId: { in: jobIds } },
-        select: { jobId: true, score: true },
+        // `decision` comes back with the score because a posting the candidate
+        // rejected from their phone must not reach the browser - PLAN-v2 phase 7:
+        // "so the browser queue holds only wanted applications". Filtered below
+        // rather than in this WHERE, so the skip is REPORTED instead of the row
+        // silently vanishing between a variant existing and a form opening.
+        select: { jobId: true, score: true, decision: true },
       }),
       this.prisma.application.findMany({
         where: {
@@ -190,6 +196,11 @@ export class SubmissionService {
 
     const scoreOf = new Map(scores.map((score) => [score.jobId, score.score]));
     const done = new Set(existing.map((row) => row.jobId));
+    const rejected = new Set(
+      scores
+        .filter((score) => score.decision === MatchDecision.NOT_WANTED)
+        .map((score) => score.jobId),
+    );
 
     const items: PlannedApplication[] = [];
     const skipped: SkippedApplication[] = [];
@@ -211,6 +222,10 @@ export class SubmissionService {
 
       if (done.has(job.id)) {
         note('already submitted, or you rejected it');
+        continue;
+      }
+      if (rejected.has(job.id)) {
+        note('you said no to this one in your digest');
         continue;
       }
       if (!job.companyId) {

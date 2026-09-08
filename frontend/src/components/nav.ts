@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Plug,
   Search,
+  Sun,
   UserRound,
   Users,
   type LucideIcon,
@@ -38,6 +39,12 @@ export const CANDIDATE_NAV: NavItem[] = [
     hint: 'Today at a glance',
   },
   {
+    href: '/app/digest',
+    label: 'Today',
+    icon: Sun,
+    hint: 'This morning, and the yes/no it is asking for',
+  },
+  {
     href: '/app/jobs',
     label: 'Jobs',
     icon: Search,
@@ -62,6 +69,26 @@ export const CANDIDATE_NAV: NavItem[] = [
     hint: 'Your answers, CTC and notice period',
   },
 ];
+
+/**
+ * The four tabs a phone gets, named rather than sliced.
+ *
+ * A slice of CANDIDATE_NAV would mean the tab bar's contents changed silently every
+ * time a route was added to the sidebar - which is what happened when the digest went
+ * in: a fifth 10px label starts truncating below about 380px. So the choice is written
+ * down here. Nothing becomes unreachable: the command palette button is in the mobile
+ * header too, and it lists every route.
+ */
+const MOBILE_HREFS = new Set<string>([
+  '/app',
+  '/app/digest',
+  '/app/jobs',
+  '/app/applications',
+]);
+
+export const MOBILE_NAV: NavItem[] = CANDIDATE_NAV.filter((item) =>
+  MOBILE_HREFS.has(item.href),
+);
 
 /** Admin side. Rendered only for ADMIN - but the server refuses these routes
  *  for a USER regardless, which is the actual control (PLAN-v2 2A.1). */
