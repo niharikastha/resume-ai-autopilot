@@ -23,7 +23,12 @@
  * safe to move.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { CompanyTier, Prisma, SalaryPeriod, SalarySource } from '@prisma/client';
+import {
+  CompanyTier,
+  Prisma,
+  SalaryPeriod,
+  SalarySource,
+} from '@prisma/client';
 import { Targets, loadTargets } from '../config/targets';
 import {
   EmbeddingsService,
@@ -130,7 +135,9 @@ export class MatchingService {
     const profile = await this.resolveProfile(options);
 
     const postings = await this.loadCandidates(options.postingLimit);
-    this.logger.log(`stage 0: ${postings.length} open posting(s) with a description`);
+    this.logger.log(
+      `stage 0: ${postings.length} open posting(s) with a description`,
+    );
 
     // ---- STAGE 1 -----------------------------------------------------------
     const applied = await this.appliedJobIds(profile.userId);
@@ -302,6 +309,17 @@ export class MatchingService {
    * Only a CONFIRMED profile is usable, and the error says so rather than matching
    * against a half-parsed one - phase 3's confirmation gate exists because everything
    * downstream treats atoms as ground truth.
+   *
+   * WITHIN one candidate, `isActive` decides. That column is why this method no
+   * longer has to guess: a candidate may hold several resumes, and the most
+   * recently updated one is not reliably the one they intend to apply with - a
+   * typo fixed in an old variant would have promoted it. An explicit --label still
+   * wins over the flag, because naming one is a clearer statement of intent than
+   * a setting made on a screen last week.
+   *
+   * ACROSS candidates it still refuses. Scoring the wrong person's resume against
+   * every posting produces a complete, plausible, wrong shortlist, and no default
+   * is defensible there.
    */
   private async resolveProfile(
     options: MatchRunOptions,
@@ -312,29 +330,47 @@ export class MatchingService {
         ...(options.userId ? { userId: options.userId } : {}),
         ...(options.profileLabel ? { label: options.profileLabel } : {}),
       },
-      select: { id: true, userId: true, label: true, user: { select: { email: true } } },
+      select: {
+        id: true,
+        userId: true,
+        label: true,
+        isActive: true,
+        user: { select: { email: true } },
+      },
       orderBy: { updatedAt: 'desc' },
     });
 
     if (profiles.length === 0) {
       throw new MatchingError(
-        'no confirmed candidate profile found. Run ' +
-          '`npm run cli -- profile:ingest <resume>` first - matching reads the ' +
-          'atoms it produces, and an unconfirmed profile is deliberately unusable.',
+        'no confirmed candidate profile found. Upload one under Resumes in the ' +
+          'web app, or run `npm run cli -- profile:ingest <resume>` - matching ' +
+          'reads the atoms it produces, and an unconfirmed profile is ' +
+          'deliberately unusable.',
       );
     }
 
-    if (profiles.length > 1 && !options.userId) {
-      // Refusing rather than picking the most recent: scoring the wrong candidate's
-      // profile against every posting produces a complete, plausible, wrong shortlist.
+    // An explicit label was already applied to the query above, so anything left
+    // is the caller's own choice.
+    const chosen = options.profileLabel
+      ? profiles
+      : profiles.filter((p) => p.isActive);
+
+    if (chosen.length === 0) {
       throw new MatchingError(
-        `${profiles.length} confirmed profiles exist (` +
-          profiles.map((p) => `${p.user.email}/${p.label}`).join(', ') +
+        `${profiles.length} confirmed resume(s) exist and none is selected. Pick ` +
+          'one under Resumes in the web app, or pass --profile <label>.',
+      );
+    }
+
+    if (chosen.length > 1 && !options.userId) {
+      throw new MatchingError(
+        `${chosen.length} candidates have a selected resume (` +
+          chosen.map((p) => `${p.user.email}/${p.label}`).join(', ') +
           '). Pass --user to choose one.',
       );
     }
 
-    return profiles[0];
+    return chosen[0];
   }
 
   /**
@@ -427,7 +463,9 @@ export class MatchingService {
 
     for (let at = 0; at < stale.length; at += CHUNK) {
       const chunk = stale.slice(at, at + CHUNK);
-      const vectors = await this.embeddings.embed(chunk.map(postingEmbeddingText));
+      const vectors = await this.embeddings.embed(
+        chunk.map(postingEmbeddingText),
+      );
 
       for (const [i, posting] of chunk.entries()) {
         // Both columns in one statement. The CHECK constraint on the table refuses a
@@ -458,7 +496,9 @@ export class MatchingService {
     profileId: string,
     postings: Candidate[],
   ): Promise<Ranked<Candidate>[]> {
-    const [profile] = await this.prisma.$queryRaw<{ embedding: string | null }[]>`
+    const [profile] = await this.prisma.$queryRaw<
+      { embedding: string | null }[]
+    >`
       SELECT embedding::text AS embedding
         FROM candidate_profiles
        WHERE id = ${profileId}
@@ -476,7 +516,9 @@ export class MatchingService {
       return postings.map((row) => ({ row, distance: null }));
     }
 
-    const rows = await this.prisma.$queryRaw<{ id: string; distance: number }[]>`
+    const rows = await this.prisma.$queryRaw<
+      { id: string; distance: number }[]
+    >`
       SELECT id, (embedding <=> ${profile.embedding}::vector) AS distance
         FROM job_postings
        WHERE id = ANY(${postings.map((p) => p.id)}::text[])
@@ -509,9 +551,7 @@ export class MatchingService {
       },
     });
 
-    const tech = [
-      ...new Set(profile.atoms.flatMap((a) => a.tech)),
-    ].sort();
+    const tech = [...new Set(profile.atoms.flatMap((a) => a.tech))].sort();
 
     return {
       // From the config rather than computed from the atoms: "how many years does
@@ -588,7 +628,9 @@ function describeSalary(pay: PayFacts): string | undefined {
   return [
     range,
     pay.salaryCurrency ?? '(currency not stated)',
-    pay.salaryPeriod ? `per ${period(pay.salaryPeriod)}` : '(period not stated)',
+    pay.salaryPeriod
+      ? `per ${period(pay.salaryPeriod)}`
+      : '(period not stated)',
   ].join(' ');
 }
 

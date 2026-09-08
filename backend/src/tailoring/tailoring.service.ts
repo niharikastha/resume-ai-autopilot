@@ -305,18 +305,33 @@ export class TailoringService {
 
     if (profiles.length === 0) {
       throw new TailoringError(
-        'no confirmed candidate profile matches. Run `npm run cli -- profile:ingest ' +
-          '<resume>` and confirm it.',
+        'no confirmed candidate profile matches. Upload one under Resumes in the ' +
+          'web app, or run `npm run cli -- profile:ingest <resume>` and confirm it.',
       );
     }
-    if (profiles.length > 1) {
+
+    // The selected resume, when the caller did not name one. Same rule as
+    // MatchingService.resolveProfile, and it has to be the same rule: tailoring a
+    // resume the candidate did not choose, then rendering it to a file named after
+    // a real company, is not a mistake that announces itself.
+    const chosen = options.profileLabel
+      ? profiles
+      : profiles.filter((p) => p.isActive);
+
+    if (chosen.length === 0) {
       throw new TailoringError(
-        `${profiles.length} confirmed profiles exist (` +
-          profiles.map((p) => p.label).join(', ') +
+        `${profiles.length} confirmed resume(s) exist and none is selected. Pick ` +
+          'one under Resumes in the web app, or pass --label.',
+      );
+    }
+    if (chosen.length > 1) {
+      throw new TailoringError(
+        `${chosen.length} candidates have a selected resume (` +
+          chosen.map((p) => p.label).join(', ') +
           '). Pass --user or --label to choose one.',
       );
     }
-    return profiles[0];
+    return chosen[0];
   }
 
   /**

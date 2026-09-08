@@ -8,6 +8,7 @@ import { HealthController } from './health/health.controller';
 import { MailModule } from './mail/mail.module';
 import { MatchingModule } from './matching/matching.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProfileModule } from './profile/profile.module';
 import { QueueModule } from './queue/queue.module';
 import { TailoringModule } from './tailoring/tailoring.module';
 
@@ -34,9 +35,12 @@ import { TailoringModule } from './tailoring/tailoring.module';
     // belongs with the digest in phase 7, because a run that ends by writing files
     // nobody was told about is not the handoff this phase is for.
     TailoringModule,
+    // Phase 3, now with an HTTP surface: the resume library. Imported for its
+    // controller - the CLI resolves ProfileService directly and does not need the
+    // module to be registered here.
+    ProfileModule,
     ScheduleModule.forRoot(),
     // Phase modules land here as they are built:
-    //   ProfileModule (3, CLI-only so far),
     //   ApplyModule (6), SchedulerModule + NotifyModule (7)
   ],
   controllers: [HealthController],

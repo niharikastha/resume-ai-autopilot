@@ -102,6 +102,21 @@ export const envSchema = z.object({
    */
   RESUME_OUTPUT_DIR: blank(z.string().default('.artifacts/resumes')),
 
+  /**
+   * Where resumes UPLOADED through the web app are kept.
+   *
+   * Separate from RESUME_OUTPUT_DIR because the two have opposite lifecycles: the
+   * output directory is regenerable at any time from the atoms, while a file in
+   * here is the original the atoms were parsed from and cannot be reconstructed
+   * if it is deleted. Mixing them invites a "clear the old tailored resumes"
+   * cleanup that also removes every candidate's source document.
+   *
+   * Under .artifacts/ so the existing .gitignore rule covers it. These files are
+   * whole resumes - name, phone, address, employment history - and must never
+   * reach the repository.
+   */
+  RESUME_UPLOAD_DIR: blank(z.string().default('.artifacts/uploads')),
+
   // Phase 7.
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),

@@ -133,12 +133,7 @@ const SECTIONS: { kind: SectionKind; pattern: RegExp }[] = [
 ];
 
 type SectionKind =
-  | 'header'
-  | 'skills'
-  | 'experience'
-  | 'projects'
-  | 'education'
-  | 'other';
+  'header' | 'skills' | 'experience' | 'projects' | 'education' | 'other';
 
 type LineKind = 'blank' | 'heading' | 'bullet' | 'role' | 'tech' | 'plain';
 
@@ -302,7 +297,10 @@ function readHeader(
     tel?.replace(/^tel:/i, '').trim() ??
     // Searched per line, not across the whole block: a greedy digit run over a
     // joined string can span an email's digits and a postcode.
-    content.map((l) => PHONE.exec(l.text)?.[0]).find(Boolean)?.trim() ??
+    content
+      .map((l) => PHONE.exec(l.text)?.[0])
+      .find(Boolean)
+      ?.trim() ??
     null;
 
   const linkedIn = link(/linkedin\.com/i);
@@ -418,7 +416,9 @@ function joinContinuations(
 function splitRoleLine(text: string): { title: string; dateRange?: string } {
   const match = DATE_RANGE.exec(text);
   if (!match) return { title: text };
-  const title = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
+  const title = (
+    text.slice(0, match.index) + text.slice(match.index + match[0].length)
+  )
     .replace(/\s{2,}/g, ' ')
     .replace(/[\s|,\u2013\u2014-]+$/, '')
     .trim();
@@ -464,6 +464,34 @@ function atom(
 }
 
 /**
+ * Re-tag one atom whose text a human edited by hand in the web app.
+ *
+ * Exists so the tagging rules above have exactly one implementation. `tech` and
+ * `metrics` are not decoration - the provenance guard treats them as the complete
+ * list of technologies and figures a rewrite of this atom is allowed to contain -
+ * so an edited bullet whose tags still describe its previous wording is a guard
+ * checking against the wrong facts. Re-deriving them is not optional.
+ *
+ * A tag the words do not support is therefore NOT expressible here, and that is
+ * the point: SkillsReserve is where a candidate declares a skill their resume
+ * never mentions, with a note saying why.
+ */
+export function retagAtom(input: {
+  kind: AtomKind;
+  text: string;
+  /** Explicit tags, as a "Tech Stack:" line would have supplied. */
+  tech?: string[];
+  employer?: string;
+  dateRange?: string;
+}): ParsedAtom {
+  return atom(input.kind, input.text, {
+    tech: input.tech,
+    employer: input.employer,
+    dateRange: input.dateRange,
+  });
+}
+
+/**
  * Parses resume text into a profile and its atoms.
  *
  * `links` come from the PDF's annotations - pass `[]` for plain text.
@@ -496,7 +524,7 @@ export function parseResume(text: string, links: string[] = []): ParsedProfile {
    */
   let unattributed = 0;
 
-  for (let i = 0; i < lines.length; ) {
+  for (let i = 0; i < lines.length;) {
     const line = lines[i];
 
     if (line.kind === 'blank') {
@@ -556,7 +584,9 @@ export function parseResume(text: string, links: string[] = []): ParsedProfile {
       // Stack: Node.js, React" is not a claim about what the candidate DID, it is
       // a property of the job they did it in.
       if (roleAtom) {
-        roleAtom.tech = [...new Set([...roleAtom.tech, ...splitTechList(line.text)])];
+        roleAtom.tech = [
+          ...new Set([...roleAtom.tech, ...splitTechList(line.text)]),
+        ];
       }
       i++;
       continue;
@@ -699,7 +729,9 @@ function finish(
     );
   }
   if (unique.filter((a) => a.kind === AtomKind.SKILL).length === 0) {
-    warnings.push('no skills atoms found - check that the SKILLS heading parsed');
+    warnings.push(
+      'no skills atoms found - check that the SKILLS heading parsed',
+    );
   }
 
   const runOn = bullets.filter((a) => a.text.length > 400);

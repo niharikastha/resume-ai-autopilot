@@ -278,9 +278,29 @@ model CandidateProfile {
   embedding Unsupported("vector(384)")?
 
   sourceResumePath String?
+  /// The filename the candidate uploaded, kept for display only. The stored file
+  /// is renamed to a uuid, so without this the resume list could show nothing but
+  /// a row of uuids - and "which of these three did I upload in August" is the
+  /// whole question that screen answers.
+  sourceFilename   String?
   confirmedAt      DateTime? /// null until the human confirmation gate passes
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+
+  /// The resume matching and tailoring use when nothing names one explicitly.
+  ///
+  /// Needed the moment a candidate can hold more than one. Both funnels used to
+  /// REFUSE when they found several profiles, because picking the wrong one
+  /// yields a complete, plausible, wrong shortlist - a hard failure was the only
+  /// safe default with no way to express intent. This column is that way.
+  ///
+  /// At most one row per user may be true, enforced by a partial unique index in
+  /// the migration (Postgres `WHERE "isActive"`, which Prisma's schema language
+  /// cannot express - `@@unique([userId, isActive])` would instead permit exactly
+  /// one INACTIVE resume, the opposite of the rule). Zero is legal: a candidate
+  /// mid-upload with nothing confirmed has no active resume.
+  isActive         Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   atoms          ProfileAtom[]

@@ -73,6 +73,9 @@ const PROFILE = {
   github: null,
   portfolio: null,
   confirmedAt: new Date('2026-01-01'),
+  // The selected resume. A candidate may keep several; tailoring reads this one and
+  // refuses rather than picking, so every fixture below has to say which it is.
+  isActive: true,
   atoms: [ATOMS[0]],
 };
 
@@ -89,7 +92,8 @@ function job(id: string, overrides: Partial<FakeJob> = {}): FakeJob {
   return {
     id,
     title: `Backend Engineer ${id}`,
-    descriptionText: 'We need someone who has run a Node.js ingestion pipeline.',
+    descriptionText:
+      'We need someone who has run a Node.js ingestion pipeline.',
     companyId: `company-${id}`,
     company: { id: `company-${id}`, name: `Company ${id}` },
     closedAt: null,
@@ -120,10 +124,11 @@ interface Seed {
 
 /** Records what it was asked, so the tests can assert on the query, not the answer. */
 class FakePrisma {
-  readonly calls: { matchScoreFindMany: unknown[]; variantCreate: unknown[] } = {
-    matchScoreFindMany: [],
-    variantCreate: [],
-  };
+  readonly calls: { matchScoreFindMany: unknown[]; variantCreate: unknown[] } =
+    {
+      matchScoreFindMany: [],
+      variantCreate: [],
+    };
 
   constructor(private readonly seed: Seed) {}
 
@@ -149,14 +154,17 @@ class FakePrisma {
     },
     findUnique: (args: { where: { userId_jobId: { jobId: string } } }) =>
       Promise.resolve(
-        this.seed.scores?.find((s) => s.jobId === args.where.userId_jobId.jobId) ??
-          null,
+        this.seed.scores?.find(
+          (s) => s.jobId === args.where.userId_jobId.jobId,
+        ) ?? null,
       ),
   };
 
   jobPosting = {
     findUnique: (args: { where: { id: string } }) =>
-      Promise.resolve(this.seed.jobs?.find((j) => j.id === args.where.id) ?? null),
+      Promise.resolve(
+        this.seed.jobs?.find((j) => j.id === args.where.id) ?? null,
+      ),
   };
 
   resumeVariant = {
@@ -182,7 +190,11 @@ class FakeLlm implements LlmProvider {
     return 'claude-opus-5';
   }
 
-  complete<S, I, O>(_task: unknown, _shared: S, input: I): Promise<LlmResult<O>> {
+  complete<S, I, O>(
+    _task: unknown,
+    _shared: S,
+    input: I,
+  ): Promise<LlmResult<O>> {
     const title = (input as { title: string }).title;
     this.seen.push(title);
     const answer = this.reply(title);
@@ -200,7 +212,9 @@ class FakeLlm implements LlmProvider {
     });
   }
 
-  completeMany<S, I, O>(): Promise<Map<string, LlmResult<O>>> {
+  // Underscored because they exist only to match the interface's signature; this
+  // path is never reached, and tailoring is one call per posting by design.
+  completeMany<_S, _I, O>(): Promise<Map<string, LlmResult<O>>> {
     throw new Error('tailoring does not batch');
   }
 }
@@ -208,11 +222,7 @@ class FakeLlm implements LlmProvider {
 function build(seed: Seed = {}, llm: FakeLlm = new FakeLlm()) {
   const prisma = new FakePrisma(seed);
   const config = { getOrThrow: () => '.artifacts/test-resumes' };
-  const service = new TailoringService(
-    prisma as never,
-    config as never,
-    llm as LlmProvider,
-  );
+  const service = new TailoringService(prisma as never, config as never, llm);
   return { service, prisma, llm };
 }
 
@@ -260,7 +270,9 @@ describe('the --job bypass', () => {
     const target = job('a');
     const { service } = build({ jobs: [target], scores: [scored(target, 12)] });
 
-    await expect(service.tailor({ jobId: 'a', dryRun: true })).resolves.toMatchObject({
+    await expect(
+      service.tailor({ jobId: 'a', dryRun: true }),
+    ).resolves.toMatchObject({
       tailored: 1,
     });
   });
@@ -275,7 +287,9 @@ describe('the --job bypass', () => {
       variants: [{ jobId: 'a' }],
     });
 
-    await expect(service.tailor({ jobId: 'a', dryRun: true })).resolves.toMatchObject({
+    await expect(
+      service.tailor({ jobId: 'a', dryRun: true }),
+    ).resolves.toMatchObject({
       tailored: 1,
     });
   });
@@ -283,12 +297,12 @@ describe('the --job bypass', () => {
   it('throws for an id that does not exist', async () => {
     const { service } = build({ jobs: [] });
 
-    await expect(service.tailor({ jobId: 'nope', dryRun: true })).rejects.toThrow(
-      TailoringError,
-    );
-    await expect(service.tailor({ jobId: 'nope', dryRun: true })).rejects.toThrow(
-      /no posting with id nope/,
-    );
+    await expect(
+      service.tailor({ jobId: 'nope', dryRun: true }),
+    ).rejects.toThrow(TailoringError);
+    await expect(
+      service.tailor({ jobId: 'nope', dryRun: true }),
+    ).rejects.toThrow(/no posting with id nope/);
   });
 
   it('throws rather than reporting "nothing to tailor" for an empty description', async () => {
@@ -326,8 +340,11 @@ describe('the shortlist query', () => {
 
     await service.tailor({ dryRun: true });
 
-    const where = (prisma.calls.matchScoreFindMany[0] as { where: { verdict: { in: MatchVerdict[] } } })
-      .where;
+    const where = (
+      prisma.calls.matchScoreFindMany[0] as {
+        where: { verdict: { in: MatchVerdict[] } };
+      }
+    ).where;
     expect(where.verdict.in).not.toContain(MatchVerdict.BORDERLINE);
   });
 
@@ -366,7 +383,10 @@ describe('what the shortlist spends the cap on', () => {
   it('takes at most one posting per company', async () => {
     // Three openings at one employer is a common shape, and sending three tailored
     // resumes to the same recruiter on the same day is the outcome being prevented.
-    const same = { companyId: 'company-x', company: { id: 'company-x', name: 'X' } };
+    const same = {
+      companyId: 'company-x',
+      company: { id: 'company-x', name: 'X' },
+    };
     const { service } = build({
       scores: [
         scored(job('a', same), 90),
@@ -410,7 +430,11 @@ describe('what the shortlist spends the cap on', () => {
       variants: [{ jobId: 'a' }],
     });
 
-    const result = await service.tailor({ dryRun: true, limit: 10, force: true });
+    const result = await service.tailor({
+      dryRun: true,
+      limit: 10,
+      force: true,
+    });
 
     expect(result.results.map((r) => r.jobId)).toEqual(['a']);
   });
@@ -496,16 +520,67 @@ describe('when a call fails', () => {
 });
 
 describe('choosing a profile', () => {
-  it('refuses to guess between two confirmed profiles', async () => {
-    // The same rule MatchingService applies, for a worse reason: this one renders the
-    // wrong candidate's name into a file named after a real company.
+  it('tailors the selected resume and ignores the candidate’s others', async () => {
+    // The unselected one is returned first by the query on purpose: nothing may
+    // depend on the order rows come back in.
     const { service } = build({
-      profiles: [PROFILE, { ...PROFILE, id: 'profile-2', label: 'other' }],
+      profiles: [
+        { ...PROFILE, id: 'profile-2', label: 'ml-roles', isActive: false },
+        PROFILE,
+      ],
+    });
+
+    const result = await service.tailor({ dryRun: true, limit: 1 });
+
+    expect(result.profileId).toBe('profile-1');
+  });
+
+  it('refuses when several resumes exist and none is selected', async () => {
+    // Not "just use the newest". A resume the candidate did not choose, rendered
+    // into a file named after a real company, is not a mistake that announces
+    // itself - so this stops instead.
+    const { service } = build({
+      profiles: [
+        { ...PROFILE, isActive: false },
+        { ...PROFILE, id: 'profile-2', label: 'other', isActive: false },
+      ],
     });
 
     await expect(service.tailor({ dryRun: true })).rejects.toThrow(
-      /2 confirmed profiles/,
+      /none is selected/,
     );
+  });
+
+  it('refuses to guess between two candidates who each have one selected', async () => {
+    // Both active is legal: the unique index is per user. Without --user there is
+    // no answer, and the wrong one renders the wrong person's name.
+    const { service } = build({
+      profiles: [
+        PROFILE,
+        { ...PROFILE, id: 'profile-2', userId: 'user-2', label: 'other' },
+      ],
+    });
+
+    await expect(service.tailor({ dryRun: true })).rejects.toThrow(
+      /2 candidates have a selected resume/,
+    );
+  });
+
+  it('uses a named label even when it is not the selected one', async () => {
+    // --label is the escape hatch, so it has to work on a resume the candidate has
+    // NOT selected - otherwise trying an alternative resume would mean switching
+    // the live one first.
+    const { service } = build({
+      profiles: [{ ...PROFILE, label: 'ml-roles', isActive: false }],
+    });
+
+    const result = await service.tailor({
+      dryRun: true,
+      limit: 1,
+      profileLabel: 'ml-roles',
+    });
+
+    expect(result.profileId).toBe('profile-1');
   });
 
   it('refuses when there is no confirmed profile', async () => {
@@ -548,7 +623,10 @@ describe('the cached prefix', () => {
     const llm = new FakeLlm(() =>
       passingOutput({ headline: 'Backend engineer working in Kubernetes' }),
     );
-    const { service } = build({ scores: [scored(job('a'), 90)], reserve: [] }, llm);
+    const { service } = build(
+      { scores: [scored(job('a'), 90)], reserve: [] },
+      llm,
+    );
 
     const result = await service.tailor({ dryRun: true });
 

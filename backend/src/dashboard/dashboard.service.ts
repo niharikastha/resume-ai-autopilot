@@ -89,10 +89,19 @@ export class DashboardService {
   async userOverview(userId: string) {
     const [profile, scored, strong, applications, recent, answers] =
       await Promise.all([
+        // The SELECTED resume, falling back to the newest. It has to be the one
+        // matching would use, or the card reports on a resume the shortlist below
+        // it was not built from.
         this.prisma.candidateProfile.findFirst({
           where: { userId },
-          select: { id: true, label: true, confirmedAt: true, updatedAt: true },
-          orderBy: { updatedAt: 'desc' },
+          select: {
+            id: true,
+            label: true,
+            isActive: true,
+            confirmedAt: true,
+            updatedAt: true,
+          },
+          orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }],
         }),
         this.prisma.matchScore.count({ where: { userId } }),
         this.prisma.matchScore.count({

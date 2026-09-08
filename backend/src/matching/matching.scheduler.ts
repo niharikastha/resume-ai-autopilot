@@ -39,15 +39,21 @@ export class MatchingScheduler {
     if (process.env.AUTOPILOT_ROLE !== 'worker') return;
 
     try {
+      // SELECTED, not merely confirmed. A candidate holding three confirmed
+      // resumes with none chosen is a state `resolveProfile` refuses to guess at,
+      // so enqueueing them would put a job on the queue that cannot succeed - and
+      // the reason would be buried in a worker log at 07:00 rather than shown on
+      // the screen where the choice is made.
       const profiles = await this.prisma.candidateProfile.findMany({
-        where: { confirmedAt: { not: null } },
+        where: { confirmedAt: { not: null }, isActive: true },
         select: { userId: true },
         distinct: ['userId'],
       });
 
       if (profiles.length === 0) {
         this.logger.warn(
-          'no confirmed candidate profile, so there is nothing to match. Run ' +
+          'no candidate has a selected resume, so there is nothing to match. ' +
+            'Upload one under Resumes in the web app, or run ' +
             '`npm run cli -- profile:ingest <resume>`.',
         );
         return;
