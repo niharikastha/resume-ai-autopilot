@@ -83,18 +83,6 @@ export interface ScreenContext {
 }
 
 /**
- * The remote types a candidate in India can actually take.
- *
- * REMOTE_OTHER_REGION is the one this exists to exclude, and PLAN-v2's change to 1c
- * is the measurement behind it: the spike found 509 postings tagged remote that were
- * not India-eligible. "Remote - US" is not a remote job, it is a job in the US.
- */
-const APPLICABLE_REMOTE: ReadonlySet<RemoteType> = new Set([
-  RemoteType.REMOTE_INDIA,
-  RemoteType.REMOTE_GLOBAL,
-]);
-
-/**
  * Compiled form of one config term. Cached because every posting is tested against
  * every term in a ~150-entry list, and the lists do not change inside a run.
  */
@@ -197,20 +185,14 @@ export function screen(
   // posting that states no requirement always passes - which is most of them - and
   // stage 3 reads the real requirement out of the description, because "5+ years or
   // equivalent experience" is not a number a parser should be trusted with.
-  if (
-    posting.yoeMin !== null &&
-    posting.yoeMin > targets.experience.maxYears
-  ) {
+  if (posting.yoeMin !== null && posting.yoeMin > targets.experience.maxYears) {
     return {
       pass: false,
       reason: 'experience-window',
       matched: `requires ${posting.yoeMin}+ years`,
     };
   }
-  if (
-    posting.yoeMax !== null &&
-    posting.yoeMax < targets.experience.minYears
-  ) {
+  if (posting.yoeMax !== null && posting.yoeMax < targets.experience.minYears) {
     return {
       pass: false,
       reason: 'experience-window',
@@ -283,6 +265,9 @@ function screenLocation(
   posting: ScreenablePosting,
   targets: Targets,
 ): Stage1Verdict | undefined {
+  // PLAN-v2's change to 1c, and the measurement behind it: the spike found 509
+  // postings tagged remote that were not India-eligible. "Remote - US" is not a
+  // remote job, it is a job in the US.
   if (posting.remoteType === RemoteType.REMOTE_OTHER_REGION) {
     return {
       pass: false,
@@ -291,23 +276,48 @@ function screenLocation(
     };
   }
 
-  if (APPLICABLE_REMOTE.has(posting.remoteType)) {
-    // REMOTE_INDIA is unambiguous. REMOTE_GLOBAL is "remote, no region stated",
-    // which is what most Indian postings that say only "Remote" resolve to - hence
-    // it is governed by allowRemoteUnspecified rather than by the location list,
-    // which it would never match.
-    const allowed =
-      posting.remoteType === RemoteType.REMOTE_INDIA
-        ? targets.locations.allowRemoteIndia
-        : targets.locations.allowRemoteUnspecified;
-
-    return allowed
+  if (posting.remoteType === RemoteType.REMOTE_INDIA) {
+    // Unambiguous: the string said remote and said India.
+    return targets.locations.allowRemoteIndia
       ? undefined
       : {
           pass: false,
           reason: 'remote-not-applicable',
           matched: posting.remoteType,
         };
+  }
+
+  if (posting.remoteType === RemoteType.REMOTE_GLOBAL) {
+    if (!targets.locations.allowRemoteUnspecified) {
+      return {
+        pass: false,
+        reason: 'remote-not-applicable',
+        matched: posting.remoteType,
+      };
+    }
+
+    // REMOTE_GLOBAL means "remote, and remoteType() found no region it recognised" -
+    // which is NOT the same as the posting naming no region. `OTHER_REGION` is a
+    // list of country and bloc words, so it misses every posting that gives a city
+    // or a smaller country: "New York, NY", "Remote Poland", "Hungary - Budapest",
+    // "Remote - California". 74 scored postings in the live table were foreign jobs
+    // sitting in this bucket, four of them shortlisted GOOD and one of those the
+    // top-ranked row of the day - an application spent on a job that needs a visa.
+    //
+    // So allowRemoteUnspecified is applied to what it actually says: a posting whose
+    // location text specifies nothing. If the text names a place, that place has to
+    // be one the candidate can work in, exactly as for an onsite role. Fixing it
+    // here rather than by growing OTHER_REGION because that list can never be
+    // finished - there is no enumeration of the world's cities worth maintaining in
+    // a regex - while "does this string name a place at all" is decidable.
+    const location = posting.location?.toLowerCase().trim() ?? '';
+    if (
+      namesAPlace(location) &&
+      !firstMatch(location, targets.locations.allow)
+    ) {
+      return { pass: false, reason: 'location', matched: location };
+    }
+    return undefined;
   }
 
   // ONSITE, HYBRID or UNKNOWN: the location string has to place it somewhere the
@@ -322,6 +332,42 @@ function screenLocation(
   return firstMatch(location, targets.locations.allow)
     ? undefined
     : { pass: false, reason: 'location', matched: location };
+}
+
+/**
+ * The words a location string can be made of while still naming nowhere.
+ *
+ * Everything here means "remote", "everywhere" or "nothing in particular". A string
+ * built only from these specifies no place; a string with anything left over does.
+ * Filler and punctuation are stripped separately, so entries are only the terms that
+ * carry the meaning.
+ */
+const PLACELESS =
+  /\b(remote|remotely|hybrid|onsite|on-site|global|globally|worldwide|world|wide|anywhere|any|all|various|multiple|locations?|location|distributed|virtual|telecommute|telework|wfh|work|from|home|based|office|flexible|fully|friendly|optional|travel|required|position|role|job|posting|only|other|various)\b/g;
+
+/**
+ * Whether a location string names somewhere, as opposed to saying "remote".
+ *
+ * The test is subtractive on purpose. Recognising place NAMES needs a gazetteer and
+ * would be wrong the moment a posting invents a spelling; recognising the small,
+ * closed vocabulary of ways to say "no particular place" needs a list that is
+ * genuinely finite. Whatever survives the subtraction is treated as a place, so the
+ * failure mode is a posting rejected for an unparseable location string rather than a
+ * foreign job reaching a real application.
+ *
+ * `remote (india)` keeps `india` and is then matched against locations.allow by the
+ * caller, so the check does not need to know which places are wanted - only that one
+ * was named.
+ */
+function namesAPlace(location: string): boolean {
+  return (
+    location
+      .replace(PLACELESS, ' ')
+      // Digits go with the punctuation: "100% remote" and "USA1" differ only in the
+      // letters, and it is the letters that name somewhere.
+      .replace(/[^a-z]+/g, '')
+      .trim().length > 0
+  );
 }
 
 /** Counts of each rejection reason, for the per-stage log the plan requires. */
@@ -339,7 +385,11 @@ export function screenAll<T extends ScreenablePosting>(
   postings: T[],
   targets: Targets,
   ctx: ScreenContext,
-): { survivors: T[]; rejected: RejectHistogram; examples: Map<RejectReason, string> } {
+): {
+  survivors: T[];
+  rejected: RejectHistogram;
+  examples: Map<RejectReason, string>;
+} {
   const survivors: T[] = [];
   const rejected: RejectHistogram = {};
   // One worked example per reason. Enough to see what a rule is actually catching

@@ -40,7 +40,9 @@ const ctx = { now: NOW, appliedJobIds: new Set<string>() };
  * The description contains a real mustHaveAny keyword, because a fixture that failed
  * the keyword rule would make every other test pass for the wrong reason.
  */
-function posting(overrides: Partial<ScreenablePosting> = {}): ScreenablePosting {
+function posting(
+  overrides: Partial<ScreenablePosting> = {},
+): ScreenablePosting {
   const title = overrides.title ?? 'Backend Engineer';
   return {
     id: 'job-1',
@@ -94,7 +96,9 @@ describe('facts, checked before judgements', () => {
   });
 
   it('rejects a posting with no description text', () => {
-    expect(reasonFor(posting({ descriptionText: '   ' }))).toBe('no-description');
+    expect(reasonFor(posting({ descriptionText: '   ' }))).toBe(
+      'no-description',
+    );
   });
 });
 
@@ -146,32 +150,36 @@ describe('title rules', () => {
     // MEASURED against the real corpus. `intern` matched "Internal", so a live
     // Bengaluru backend role was thrown out as an internship - and a rejected
     // posting produces no output, so nothing surfaced it.
-    expect(reasonFor(posting({ title: 'Software Engineer, Internal Systems' }))).toBe(
-      'PASSED',
-    );
+    expect(
+      reasonFor(posting({ title: 'Software Engineer, Internal Systems' })),
+    ).toBe('PASSED');
     // The term still has to do its actual job.
     expect(reasonFor(posting({ title: 'Software Engineer, Intern' }))).toBe(
       'title-excluded',
     );
-    expect(reasonFor(posting({ title: 'Software Engineering Internship' }))).toBe(
-      'title-excluded',
-    );
+    expect(
+      reasonFor(posting({ title: 'Software Engineering Internship' })),
+    ).toBe('title-excluded');
   });
 
   it('still matches a plural or a gerund, because the lists are singular', () => {
     // The reason the boundary rule allows s/es/ing and is not a bare \b...\b.
     // "Software Engineering" is how a large fraction of real titles are written,
     // and `software engineer` has to keep reaching it.
-    expect(reasonFor(posting({ title: 'Software Engineering, Payments' }))).toBe(
-      'PASSED',
-    );
+    expect(
+      reasonFor(posting({ title: 'Software Engineering, Payments' })),
+    ).toBe('PASSED');
     expect(reasonFor(posting({ title: 'Engineering Managers, Core' }))).toBe(
       'title-excluded',
     );
   });
 
   it('names the term that excluded it', () => {
-    const verdict = screen(posting({ title: 'Engineering Manager' }), targets, ctx);
+    const verdict = screen(
+      posting({ title: 'Engineering Manager' }),
+      targets,
+      ctx,
+    );
     expect(verdict).toMatchObject({ pass: false });
     if (verdict.pass) throw new Error('unreachable');
     // Without this, finding the offending line in a 60-entry YAML list is a manual
@@ -191,7 +199,9 @@ describe('title rules', () => {
     // must not inherit that bug, so a deliberately wrong stored value changes
     // nothing.
     expect(
-      reasonFor(posting({ title: 'Backend Engineer', normalizedTitle: 'nonsense' })),
+      reasonFor(
+        posting({ title: 'Backend Engineer', normalizedTitle: 'nonsense' }),
+      ),
     ).toBe('PASSED');
   });
 });
@@ -204,9 +214,9 @@ describe('the experience window', () => {
   });
 
   it('rejects a posting demanding more than maxYears', () => {
-    expect(reasonFor(posting({ yoeMin: targets.experience.maxYears + 3 }))).toBe(
-      'experience-window',
-    );
+    expect(
+      reasonFor(posting({ yoeMin: targets.experience.maxYears + 3 })),
+    ).toBe('experience-window');
   });
 
   it('accepts a posting demanding exactly maxYears', () => {
@@ -237,16 +247,18 @@ describe('location and remote eligibility', () => {
   });
 
   it('rejects an onsite posting outside the allow list', () => {
-    expect(reasonFor(posting({ location: 'Berlin, Germany' }))).toBe('location');
+    expect(reasonFor(posting({ location: 'Berlin, Germany' }))).toBe(
+      'location',
+    );
   });
 
   it('does not accept Indiana as India', () => {
     // The same fragment bug as `intern`, in the direction that costs an
     // application rather than hides one: this used to PASS, and the funnel would
     // have spent an Opus tailoring call on a job in the American Midwest.
-    expect(
-      reasonFor(posting({ location: 'Indianapolis, Indiana' })),
-    ).toBe('location');
+    expect(reasonFor(posting({ location: 'Indianapolis, Indiana' }))).toBe(
+      'location',
+    );
     expect(reasonFor(posting({ location: 'Remote - India' }))).toBe('PASSED');
   });
 
@@ -268,7 +280,10 @@ describe('location and remote eligibility', () => {
     // reject every one of them.
     expect(
       reasonFor(
-        posting({ location: 'Remote, India', remoteType: RemoteType.REMOTE_INDIA }),
+        posting({
+          location: 'Remote, India',
+          remoteType: RemoteType.REMOTE_INDIA,
+        }),
       ),
     ).toBe('PASSED');
   });
@@ -280,7 +295,10 @@ describe('location and remote eligibility', () => {
     };
     expect(
       screen(
-        posting({ location: 'Remote, India', remoteType: RemoteType.REMOTE_INDIA }),
+        posting({
+          location: 'Remote, India',
+          remoteType: RemoteType.REMOTE_INDIA,
+        }),
         onsiteOnly,
         ctx,
       ),
@@ -291,7 +309,10 @@ describe('location and remote eligibility', () => {
     // Most Indian postings that say only "Remote" land on REMOTE_GLOBAL. They are
     // usually eligible and occasionally not, which is exactly why this is a config
     // flag rather than a hard-coded decision.
-    const p = posting({ location: 'Remote', remoteType: RemoteType.REMOTE_GLOBAL });
+    const p = posting({
+      location: 'Remote',
+      remoteType: RemoteType.REMOTE_GLOBAL,
+    });
     expect(reasonFor(p)).toBe('PASSED');
 
     const strict = {
@@ -302,6 +323,55 @@ describe('location and remote eligibility', () => {
       pass: false,
       reason: 'remote-not-applicable',
     });
+  });
+
+  it('rejects an unspecified-region remote posting that names a foreign place', () => {
+    // THE BUG THIS FIXES. REMOTE_GLOBAL means "remote, and no region remoteType()
+    // recognised", which is not the same as no region being named: OTHER_REGION is a
+    // list of country and bloc words, so it misses a city or a smaller country. Every
+    // string below is a real one from the live table, and every one of them passed.
+    // 74 scored postings were foreign jobs in this bucket, four shortlisted GOOD, one
+    // of them the top-ranked row of the day.
+    for (const location of [
+      'Remote Poland',
+      'New York, NY',
+      'Hungary - Budapest',
+      'Remote - California',
+      'London',
+      'Toronto',
+      'Paris, France',
+      'Portugal - Remote',
+      '-REMOTE, BULGARIA-',
+      'Remote-NORAM',
+      'CA Remote Ontario',
+      'Remote-Friendly (Travel-Required) | San Francisco, CA | Seattle, WA',
+    ]) {
+      expect(
+        reasonFor(posting({ location, remoteType: RemoteType.REMOTE_GLOBAL })),
+      ).toBe('location');
+    }
+  });
+
+  it('still passes an unspecified-region posting that names nowhere, or India', () => {
+    // The other side of the same rule, and the reason it is subtractive rather than a
+    // list of places: these have to keep working, and "Remote" is 31 rows on its own.
+    for (const location of [
+      'Remote',
+      'Remote Globally',
+      'Remote - Anywhere',
+      '100% Remote',
+      'Work From Home',
+      'Multiple Locations',
+      '',
+      // Named, and named somewhere the candidate can work. The check does not need to
+      // know which places are wanted - locations.allow answers that.
+      'Remote (India)',
+      'Remote - Bengaluru',
+    ]) {
+      expect(
+        reasonFor(posting({ location, remoteType: RemoteType.REMOTE_GLOBAL })),
+      ).toBe('PASSED');
+    }
   });
 
   it('applies allowRemoteUnspecified to a posting with no location at all', () => {
@@ -328,7 +398,10 @@ describe('location and remote eligibility', () => {
     ).toBe('location');
     expect(
       reasonFor(
-        posting({ location: 'Bengaluru, India', remoteType: RemoteType.HYBRID }),
+        posting({
+          location: 'Bengaluru, India',
+          remoteType: RemoteType.HYBRID,
+        }),
       ),
     ).toBe('PASSED');
   });
@@ -443,10 +516,13 @@ describe('seniority', () => {
     // Currently a no-op with the shipped allow list (junior, mid, senior - every
     // value `seniority()` can return). Tested against a narrowed list so that
     // narrowing the real one is known to take effect.
-    const juniorOnly = { ...targets, seniority: { allow: ['junior' as const] } };
-    expect(screen(posting({ seniority: 'senior' }), juniorOnly, ctx)).toMatchObject(
-      { pass: false, reason: 'seniority', matched: 'senior' },
-    );
+    const juniorOnly = {
+      ...targets,
+      seniority: { allow: ['junior' as const] },
+    };
+    expect(
+      screen(posting({ seniority: 'senior' }), juniorOnly, ctx),
+    ).toMatchObject({ pass: false, reason: 'seniority', matched: 'senior' });
   });
 });
 
