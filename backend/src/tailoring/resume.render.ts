@@ -72,10 +72,19 @@ function contactLine(doc: ResumeDocument): string {
  * The rule is a paragraph BORDER, not a row of underscores and not a table with one
  * visible edge. A border is invisible to a parser; underscores are text it has to
  * read and discard.
+ *
+ * `keepNext` is what stops EDUCATION sitting alone at the foot of page one with the
+ * degree it names overleaf - measured on a real rendered resume. A word processor
+ * breaks pages wherever the text runs out unless a paragraph says otherwise, and it
+ * has no idea that a heading with nothing under it is meaningless. `keepLines` keeps
+ * the heading's own line whole. Neither is a layout feature a parser has to
+ * understand: both are properties on the paragraph, and the text is unchanged.
  */
 function heading(text: string): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
+    keepNext: true,
+    keepLines: true,
     spacing: { before: 240, after: 80 },
     border: {
       bottom: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 2 },
@@ -160,6 +169,10 @@ function roleHeading(
     );
   }
   return new Paragraph({
+    // Same reason as the section heading: an employer and dates at the bottom of a
+    // page with their bullets on the next one reads as a job with nothing in it.
+    keepNext: true,
+    keepLines: true,
     spacing: { before: 160, after: 40 },
     // 9360 twips = 6.5in, the width of Letter with one-inch margins, so the dates
     // end flush with the right margin.
@@ -168,76 +181,147 @@ function roleHeading(
   });
 }
 
-/** Builds the docx in memory. Exported for the renderer's tests. */
-export function toDocx(doc: ResumeDocument): Document {
-  const body: Paragraph[] = [
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 40 },
-      children: [
-        new TextRun({
-          text: doc.contact.fullName,
-          bold: true,
-          size: 32,
-          font: FONT,
-        }),
-      ],
-    }),
-  ];
+/**
+ * One thing on the page, before it is XML.
+ *
+ * The point of this type is that WHICH SECTION A LINE LANDS IN is a decision worth
+ * reading in a test, and a Paragraph cannot be read - it is an XML builder. So
+ * `layout` makes the decisions and returns plain data, and `paragraphFor` turns each
+ * item into the one paragraph it corresponds to. Nothing in the second step chooses
+ * anything.
+ */
+export type ResumeBlock =
+  | { kind: 'name'; text: string }
+  | { kind: 'headline'; text: string }
+  | { kind: 'contact'; text: string }
+  | { kind: 'section'; text: string }
+  | {
+      kind: 'entry';
+      title: string;
+      employer: string | null;
+      dateRange: string | null;
+    }
+  | { kind: 'line'; text: string }
+  | { kind: 'bullet'; text: string };
 
-  if (doc.headline) {
-    body.push(
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 40 },
-        children: [new TextRun({ text: doc.headline, size: BODY, font: FONT })],
-      }),
-    );
-  }
+/** Every line of the resume, in the order it prints. Exported for the tests. */
+export function layout(doc: ResumeDocument): ResumeBlock[] {
+  const blocks: ResumeBlock[] = [{ kind: 'name', text: doc.contact.fullName }];
 
-  body.push(
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 120 },
-      children: [new TextRun({ text: contactLine(doc), size: 20, font: FONT })],
-    }),
-  );
+  if (doc.headline) blocks.push({ kind: 'headline', text: doc.headline });
+  blocks.push({ kind: 'contact', text: contactLine(doc) });
 
   if (doc.skills.length > 0) {
-    body.push(heading('Skills'));
-    // As plain paragraphs, not bullets: a skills line is already a comma-separated
-    // list, and bulleting each one produces a page of single-item bullets.
+    blocks.push({ kind: 'section', text: 'Skills' });
+    // As plain lines, not bullets: a skills line is already a comma-separated list,
+    // and bulleting each one produces a page of single-item bullets.
     for (const skill of doc.skills) {
-      body.push(
-        new Paragraph({
-          spacing: { after: 40 },
-          children: [new TextRun({ text: skill.text, size: BODY, font: FONT })],
-        }),
-      );
+      blocks.push({ kind: 'line', text: skill.text });
     }
   }
 
-  if (doc.roles.length > 0) {
-    body.push(heading('Experience'));
-    for (const block of doc.roles) {
-      // An orphan block has no title and no employer worth printing a heading for -
-      // its bullets are certifications or leadership lines, which stand alone.
+  // An orphan block has no title and no employer, so nothing prints above its
+  // bullets. Left inside Experience they appear directly under the previous job's
+  // heading and READ AS THAT JOB'S BULLETS - on a real rendered resume, two
+  // volunteer positions became two more Walking Pal bullets. Nothing about the text
+  // is wrong; the page attributes it to an employer it never mentions.
+  const jobs = doc.roles.filter((block) => block.title || block.employer);
+  const loose = doc.roles.filter((block) => !block.title && !block.employer);
+
+  // ...unless orphans are ALL there is. With no job above them there is nothing to
+  // be misread as, and heading them "certifications" would be this renderer
+  // inventing a claim about lines whose source section it cannot see.
+  const separate = jobs.length > 0 && loose.length > 0;
+
+  if (doc.roles.length > 0 && (jobs.length > 0 || !separate)) {
+    blocks.push({ kind: 'section', text: 'Experience' });
+    for (const block of separate ? jobs : doc.roles) {
       if (block.title || block.employer) {
-        body.push(roleHeading(block.title, block.employer, block.dateRange));
+        blocks.push({
+          kind: 'entry',
+          title: block.title,
+          employer: block.employer,
+          dateRange: block.dateRange,
+        });
       }
-      for (const item of block.bullets) body.push(bullet(item.text));
+      for (const item of block.bullets) {
+        blocks.push({ kind: 'bullet', text: item.text });
+      }
     }
   }
 
   if (doc.education.length > 0) {
-    body.push(heading('Education'));
+    blocks.push({ kind: 'section', text: 'Education' });
     for (const item of doc.education) {
-      // Same shape as a role heading - institution on the left, dates on the right -
+      // Same shape as a role entry - institution on the left, dates on the right -
       // because a degree and its university are the same kind of fact as a job and
       // its employer, and one layout means one thing for a parser to learn.
-      body.push(roleHeading(item.text, item.institution, item.dateRange));
+      blocks.push({
+        kind: 'entry',
+        title: item.text,
+        employer: item.institution,
+        dateRange: item.dateRange,
+      });
     }
   }
+
+  // Last, after education, which is where a reader expects the things that are
+  // neither a job nor a degree. The heading names both kinds because the parser's
+  // CERTIFICATIONS and LEADERSHIP sections are exactly what produces a standalone
+  // bullet - see the BULLET case in resume.document.ts - and which of the two a
+  // given line came from is not carried on the atom.
+  if (separate) {
+    blocks.push({ kind: 'section', text: 'Certifications & Activities' });
+    for (const block of loose) {
+      for (const item of block.bullets) {
+        blocks.push({ kind: 'bullet', text: item.text });
+      }
+    }
+  }
+
+  return blocks;
+}
+
+/** One block as one paragraph. No decisions here - see ResumeBlock. */
+function paragraphFor(block: ResumeBlock): Paragraph {
+  switch (block.kind) {
+    case 'name':
+      return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 40 },
+        children: [
+          new TextRun({ text: block.text, bold: true, size: 32, font: FONT }),
+        ],
+      });
+    case 'headline':
+      return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 40 },
+        children: [new TextRun({ text: block.text, size: BODY, font: FONT })],
+      });
+    case 'contact':
+      return new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 120 },
+        children: [new TextRun({ text: block.text, size: 20, font: FONT })],
+      });
+    case 'section':
+      return heading(block.text);
+    case 'entry':
+      return roleHeading(block.title, block.employer, block.dateRange);
+    case 'line':
+      return new Paragraph({
+        spacing: { after: 40 },
+        children: [new TextRun({ text: block.text, size: BODY, font: FONT })],
+      });
+    case 'bullet':
+      return bullet(block.text);
+  }
+}
+
+/** Builds the docx in memory. Exported for the renderer's tests. */
+export function toDocx(doc: ResumeDocument): Document {
+  const body = layout(doc).map(paragraphFor);
 
   return new Document({
     // Set at the document level so nothing depends on every paragraph remembering
