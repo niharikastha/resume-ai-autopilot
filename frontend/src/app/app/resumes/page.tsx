@@ -181,7 +181,7 @@ export default function ResumesPage() {
         </div>
       </PageHeader>
 
-      <div className="max-w-4xl space-y-4 px-4 pb-10 sm:px-6">
+      <div className="w-full space-y-4 px-4 pb-10 sm:px-6">
         {list.isLoading && <SkeletonCard rows={3} />}
         {list.error && <ErrorNote message={(list.error as Error).message} />}
 
@@ -204,160 +204,166 @@ export default function ResumesPage() {
           </Card>
         )}
 
-        {list.data?.map((resume) => (
-          <Card key={resume.id} glow={resume.isActive}>
-            <CardHeader
-              title={resume.label}
-              subtitle={
-                resume.filename ??
-                'Added from the command line, before this screen existed.'
-              }
-              action={
-                resume.isActive ? (
-                  <Badge tone="accent">In use</Badge>
-                ) : (
-                  <Button size="sm" onClick={() => activate.mutate(resume.id)}>
-                    Use this one
-                  </Button>
-                )
-              }
-            />
-
-            <div className="space-y-3 px-5 py-4">
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[var(--ink-muted)]">
-                {KIND_ORDER.map((kind) => (
-                  <span key={kind}>
-                    <span className="font-medium text-[var(--ink-secondary)]">
-                      {resume.counts[kind]}
-                    </span>{' '}
-                    {KIND_LABEL[kind].toLowerCase()}
-                  </span>
-                ))}
-                <span>
-                  <span className="font-medium text-[var(--ink-secondary)]">
-                    {resume.techCount}
-                  </span>{' '}
-                  technologies found
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                {resume.confirmedAt ? (
-                  <CheckCircle2
-                    size={13}
-                    style={{ color: 'var(--status-good)' }}
-                    aria-hidden
-                  />
-                ) : (
-                  <CircleAlert
-                    size={13}
-                    style={{ color: 'var(--status-warning)' }}
-                    aria-hidden
-                  />
-                )}
-                <span className="text-[var(--ink-secondary)]">
-                  {resume.confirmedAt
-                    ? `Confirmed ${relativeTime(resume.confirmedAt)}`
-                    : 'Never confirmed, so nothing will use it'}
-                </span>
-                <span className="text-[var(--ink-muted)]">
-                  · changed {relativeTime(resume.updatedAt)}
-                </span>
-                {resume.variantCount > 0 && (
-                  <span className="text-[var(--ink-muted)]">
-                    · {resume.variantCount} tailored from it
-                  </span>
-                )}
-              </div>
-
-              {renaming?.id === resume.id ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    className={cn(controlClass, 'w-full max-w-xs')}
-                    value={renaming.value}
-                    maxLength={60}
-                    autoFocus
-                    onChange={(e) =>
-                      setRenaming({ id: resume.id, value: e.target.value })
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    busy={rename.isPending}
-                    onClick={() =>
-                      rename.mutate({
-                        id: resume.id,
-                        label: renaming.value.trim(),
-                      })
-                    }
-                  >
-                    Save name
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setRenaming(null)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link href={`/app/resumes/${resume.id}`}>
-                    <Button size="sm" icon={Pencil}>
-                      Edit the pieces
-                    </Button>
-                  </Link>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      setRenaming({ id: resume.id, value: resume.label })
-                    }
-                  >
-                    Rename
-                  </Button>
-                  {confirmDelete === resume.id ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        busy={remove.isPending}
-                        onClick={() =>
-                          remove.mutate({
-                            id: resume.id,
-                            force: resume.variantCount > 0,
-                          })
-                        }
-                      >
-                        {resume.variantCount > 0
-                          ? `Delete it and ${resume.variantCount} tailored resume${resume.variantCount === 1 ? '' : 's'}`
-                          : 'Yes, delete it'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setConfirmDelete(null)}
-                      >
-                        Keep it
-                      </Button>
-                    </>
+        {/* Two abreast on a wide screen. A resume card is a heading, a row of
+            counts and a row of buttons - stretched across a 27-inch monitor it is
+            mostly empty space, and the eye has to travel the whole width to get
+            from the name to the button that acts on it. */}
+        <div className="grid gap-4 2xl:grid-cols-2">
+          {list.data?.map((resume) => (
+            <Card key={resume.id} glow={resume.isActive}>
+              <CardHeader
+                title={resume.label}
+                subtitle={
+                  resume.filename ??
+                  'Added from the command line, before this screen existed.'
+                }
+                action={
+                  resume.isActive ? (
+                    <Badge tone="accent">In use</Badge>
                   ) : (
+                    <Button size="sm" onClick={() => activate.mutate(resume.id)}>
+                      Use this one
+                    </Button>
+                  )
+                }
+              />
+
+              <div className="space-y-3 px-5 py-4">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-[var(--ink-muted)]">
+                  {KIND_ORDER.map((kind) => (
+                    <span key={kind}>
+                      <span className="font-medium text-[var(--ink-secondary)]">
+                        {resume.counts[kind]}
+                      </span>{' '}
+                      {KIND_LABEL[kind].toLowerCase()}
+                    </span>
+                  ))}
+                  <span>
+                    <span className="font-medium text-[var(--ink-secondary)]">
+                      {resume.techCount}
+                    </span>{' '}
+                    technologies found
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  {resume.confirmedAt ? (
+                    <CheckCircle2
+                      size={13}
+                      style={{ color: 'var(--status-good)' }}
+                      aria-hidden
+                    />
+                  ) : (
+                    <CircleAlert
+                      size={13}
+                      style={{ color: 'var(--status-warning)' }}
+                      aria-hidden
+                    />
+                  )}
+                  <span className="text-[var(--ink-secondary)]">
+                    {resume.confirmedAt
+                      ? `Confirmed ${relativeTime(resume.confirmedAt)}`
+                      : 'Never confirmed, so nothing will use it'}
+                  </span>
+                  <span className="text-[var(--ink-muted)]">
+                    · changed {relativeTime(resume.updatedAt)}
+                  </span>
+                  {resume.variantCount > 0 && (
+                    <span className="text-[var(--ink-muted)]">
+                      · {resume.variantCount} tailored from it
+                    </span>
+                  )}
+                </div>
+
+                {renaming?.id === resume.id ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      className={cn(controlClass, 'w-full max-w-xs')}
+                      value={renaming.value}
+                      maxLength={60}
+                      autoFocus
+                      onChange={(e) =>
+                        setRenaming({ id: resume.id, value: e.target.value })
+                      }
+                    />
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      busy={rename.isPending}
+                      onClick={() =>
+                        rename.mutate({
+                          id: resume.id,
+                          label: renaming.value.trim(),
+                        })
+                      }
+                    >
+                      Save name
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      icon={Trash2}
-                      onClick={() => setConfirmDelete(resume.id)}
+                      onClick={() => setRenaming(null)}
                     >
-                      Delete
+                      Cancel
                     </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </Card>
-        ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href={`/app/resumes/${resume.id}`}>
+                      <Button size="sm" icon={Pencil}>
+                        Edit the pieces
+                      </Button>
+                    </Link>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setRenaming({ id: resume.id, value: resume.label })
+                      }
+                    >
+                      Rename
+                    </Button>
+                    {confirmDelete === resume.id ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          busy={remove.isPending}
+                          onClick={() =>
+                            remove.mutate({
+                              id: resume.id,
+                              force: resume.variantCount > 0,
+                            })
+                          }
+                        >
+                          {resume.variantCount > 0
+                            ? `Delete it and ${resume.variantCount} tailored resume${resume.variantCount === 1 ? '' : 's'}`
+                            : 'Yes, delete it'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          Keep it
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={Trash2}
+                        onClick={() => setConfirmDelete(resume.id)}
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
 
         {list.data && list.data.length > 0 && (
           <p className="px-1 text-xs leading-relaxed text-[var(--ink-muted)]">

@@ -32,6 +32,16 @@ import { extractResume, isSupportedResume } from './resume.text';
 /** What `preview` found, before anything is written. */
 export interface ProfilePreview {
   parsed: ParsedProfile;
+  /**
+   * The text the extractor got out of the file, before any parsing.
+   *
+   * Carried so a person can see it. Every atom below is derived from this, so when
+   * a bullet is missing or a heading was misread, this is the only place that shows
+   * WHICH of the two happened - text the extractor never produced, or text the
+   * parser put in the wrong section. Without it, a bad parse and an unreadable pdf
+   * look identical on screen.
+   */
+  text: string;
   /** The absolute path, which is what gets stored in `sourceResumePath`. */
   resumePath: string;
   /** Counts by kind, for the summary line at the top of the printout. */
@@ -94,10 +104,11 @@ export class ProfileService {
 
     return {
       parsed,
+      text,
       resumePath,
       counts,
-      techUnion: [...new Set(parsed.atoms.flatMap((a) => a.tech))].sort((a, b) =>
-        a.localeCompare(b),
+      techUnion: [...new Set(parsed.atoms.flatMap((a) => a.tech))].sort(
+        (a, b) => a.localeCompare(b),
       ),
     };
   }
@@ -115,7 +126,12 @@ export class ProfileService {
   async commit(input: {
     userId: string;
     label: string;
-    preview: ProfilePreview;
+    /**
+     * WITHOUT the raw text, which this does not read and cannot be given.
+     * Confirming sends back the atoms as the candidate edited them, so there is no
+     * longer one block of text they all came from - see ResumeLibraryService.create.
+     */
+    preview: Omit<ProfilePreview, 'text'>;
     /** Replace atoms even though past resume variants reference them. */
     force?: boolean;
   }): Promise<CommitResult> {

@@ -16,7 +16,9 @@
  * fix a mis-split bullet BEFORE it becomes ground truth, and it means the thing
  * confirmed is provably the thing that was displayed.
  *
- * UPLOADS ARE STORED PER USER, in `<RESUME_UPLOAD_DIR>/<userId>/<uuid><ext>`. An
+ * UPLOADS ARE STORED PER USER, in `<RESUME_UPLOAD_DIR>/<userId>/<uuid><ext>`,
+ * which is `backend/uploads/<userId>/<uuid><ext>` unless that variable says
+ * otherwise - see `uploadDir` for why it is not under .artifacts. An
  * upload id is resolved only inside the caller's own directory, so asking for
  * somebody else's file is not merely rejected but unexpressible - the same
  * property MeController relies on everywhere else. The extension is taken from an
@@ -105,7 +107,33 @@ export interface UploadResult {
   atoms: ParsedAtom[];
   counts: Record<AtomKind, number>;
   techUnion: string[];
+  /** What came out of the file, before parsing. See `extractedText` below. */
+  extracted: ExtractedText;
 }
+
+/**
+ * The raw text of the upload, for the confirmation screen to show.
+ *
+ * Sent whole rather than as a preview of the first few lines, because the question
+ * it answers is "is anything MISSING", and a truncated sample cannot answer that.
+ * Capped all the same - `chars` is the real length, so the screen can say how much
+ * it is not showing rather than quietly ending mid-resume.
+ */
+export interface ExtractedText {
+  text: string;
+  chars: number;
+  truncated: boolean;
+}
+
+/**
+ * The cap on the text sent back with a preview.
+ *
+ * A two-page resume extracts to about 4 KB, so this is roughly twenty resumes'
+ * worth and no real document reaches it. It exists because the size limit is on
+ * the FILE: a 5 MB pdf of dense text extracts to far more than anyone will read on
+ * a screen, and sending it would be a slow response nobody asked for.
+ */
+const MAX_EXTRACTED_CHARS = 80_000;
 
 export interface ResumeSummary {
   id: string;
@@ -259,6 +287,11 @@ export class ResumeLibraryService {
       atoms: parsed.atoms,
       counts: preview.counts,
       techUnion: preview.techUnion,
+      extracted: {
+        text: preview.text.slice(0, MAX_EXTRACTED_CHARS),
+        chars: preview.text.length,
+        truncated: preview.text.length > MAX_EXTRACTED_CHARS,
+      },
     };
   }
 
@@ -638,8 +671,15 @@ export class ResumeLibraryService {
   }
 
   private uploadDir(userId: string): string {
-    const base =
-      this.config.get<string>('RESUME_UPLOAD_DIR') ?? '.artifacts/uploads';
+    // `uploads` under whatever directory the API was started from, which for
+    // `npm run dev` is backend/. Deliberately NOT inside .artifacts: everything
+    // else in there is generated and can be deleted and rebuilt, whereas this is
+    // the candidate's own file and the only copy the server has. RESUME_UPLOAD_DIR
+    // moves it - a deployment that wants it on a mounted volume sets that.
+    //
+    // GITIGNORED, and it has to stay that way: these are real resumes with a real
+    // phone number and address in them.
+    const base = this.config.get<string>('RESUME_UPLOAD_DIR') ?? 'uploads';
     // userId is a uuid from the session, never from the request body.
     return resolve(base, userId);
   }

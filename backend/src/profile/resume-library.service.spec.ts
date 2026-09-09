@@ -256,11 +256,16 @@ class FakeProfiles {
     private readonly onCommit: () => void = () => undefined,
   ) {}
 
-  preview(path: string) {
+  async preview(path: string) {
     this.previewed.push(path);
     const p = this.onPreview(path);
-    return Promise.resolve({
+    // The real preview extracts the text of the file it was handed. Reading the
+    // bytes back is the cheapest way for the fake to do the same thing, and it
+    // means the text in the upload response is provably the file's own.
+    const text = await readFile(path, 'utf8');
+    return {
       parsed: p,
+      text,
       resumePath: path,
       counts: {
         [AtomKind.BULLET]: 0,
@@ -269,7 +274,7 @@ class FakeProfiles {
         [AtomKind.EDU]: 0,
       },
       techUnion: [],
-    });
+    };
   }
 
   commit(input: {
@@ -868,5 +873,46 @@ describe('the stored file', () => {
     expect(
       (await readFile(join(dir, USER, result.uploadId), 'utf8')).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe('the text read out of the file', () => {
+  it('comes back with the preview, whole', async () => {
+    const { service } = build({ dir });
+    const body =
+      'Astha Niharika\nastha@example.com\n\nEXPERIENCE\n- did a thing\n';
+    const result = await service.upload(USER, file('r.txt', body));
+
+    // Sent so the confirmation screen can show it. Everything else in the response
+    // is derived from these words, and a missing bullet means one of two different
+    // things depending on whether the words are here - see ExtractedText.
+    expect(result.extracted.text).toBe(body);
+    expect(result.extracted.chars).toBe(body.length);
+    expect(result.extracted.truncated).toBe(false);
+  });
+
+  it('is cut short, and says so, when a file extracts to more than the cap', async () => {
+    const { service } = build({ dir });
+    // 80_001 characters: one past MAX_EXTRACTED_CHARS, which is the only boundary
+    // worth a test. No real resume reaches it; a pdf of dense text can.
+    const body = 'x'.repeat(80_001);
+    const result = await service.upload(USER, file('r.txt', body));
+
+    expect(result.extracted.text).toHaveLength(80_000);
+    // The TRUE length, not the length of what was sent, so the screen can say how
+    // much it is not showing rather than appearing to end mid-resume.
+    expect(result.extracted.chars).toBe(80_001);
+    expect(result.extracted.truncated).toBe(true);
+  });
+
+  it('is empty rather than absent when a file gives up no text at all', async () => {
+    // What a scanned pdf does: it is a picture of a page, so there is nothing to
+    // extract. The screen says so out loud, because the pieces below will be empty
+    // and no amount of correcting them will help.
+    const { service } = build({ dir });
+    const result = await service.upload(USER, file('r.txt', ' '));
+
+    expect(result.extracted.text).toBe(' ');
+    expect(result.extracted.truncated).toBe(false);
   });
 });

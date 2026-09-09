@@ -111,11 +111,15 @@ export const envSchema = z.object({
    * if it is deleted. Mixing them invites a "clear the old tailored resumes"
    * cleanup that also removes every candidate's source document.
    *
-   * Under .artifacts/ so the existing .gitignore rule covers it. These files are
-   * whole resumes - name, phone, address, employment history - and must never
-   * reach the repository.
+   * `uploads/` at the root of whatever directory the API was started from, which
+   * in practice is `backend/uploads/`. NOT under .artifacts/, where it used to
+   * live: .artifacts is the scratch directory, and a person clearing it out has
+   * every reason to think nothing irreplaceable is in there. A separate top-level
+   * name says what this is. `.gitignore` has its own `uploads/` rule, and it has
+   * to stay - these files are whole resumes, name, phone, address and employment
+   * history, and must never reach the repository.
    */
-  RESUME_UPLOAD_DIR: blank(z.string().default('.artifacts/uploads')),
+  RESUME_UPLOAD_DIR: blank(z.string().default('uploads')),
 
   /**
    * Phase 6. Chrome's profile directory for submission sessions.

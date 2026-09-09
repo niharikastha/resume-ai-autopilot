@@ -14,6 +14,7 @@ import {
 import {
   api,
   type AtomKind,
+  type ExtractedText,
   type ParsedAtom,
   type ResumeContact,
   type UploadResult,
@@ -126,11 +127,11 @@ export function ReviewStep({
     empty > 0;
 
   return (
-    <div className="max-w-4xl space-y-5 px-4 pb-10 sm:px-6">
+    <div className="w-full space-y-5 px-4 pb-10 sm:px-6">
       <Card glow>
         <CardHeader
           title="Check this before it is saved"
-          subtitle="Nothing is stored yet. Everything below is what was read out of your file — correct anything that is wrong, then save."
+          subtitle="Your file is saved; nothing has been added to your profile yet. Everything below is what was read out of it — correct anything that is wrong, then save."
           action={
             <span className="text-xs text-[var(--ink-muted)]">
               {upload.filename}
@@ -175,7 +176,10 @@ export function ReviewStep({
           title="Your details"
           subtitle="These go at the top of every resume that gets generated. The email is required — it is where replies go, and it is never filled in for you from your account."
         />
-        <div className="grid gap-4 px-5 py-4 sm:grid-cols-2">
+        {/* Three across once there is room. A phone number in a box the width of a
+            monitor is harder to read back than one in a box the width of a phone
+            number. */}
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-2 xl:grid-cols-3">
           <Field label="Full name">
             <input
               className={cn(controlClass, 'w-full')}
@@ -220,6 +224,8 @@ export function ReviewStep({
           ))}
         </div>
       </Card>
+
+      <ExtractedTextCard extracted={upload.extracted} />
 
       {KIND_ORDER.map((kind) => {
         const group = rows.filter((r) => r.kind === kind);
@@ -277,6 +283,62 @@ export function ReviewStep({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The text the file gave up, before anything was split out of it.
+ *
+ * WHY IT IS ON THIS SCREEN. Every box below is derived from these words, so when a
+ * bullet is missing there are two quite different causes: the pdf never gave up
+ * that line, or it did and the parser filed it somewhere unexpected. Only this
+ * tells them apart - and only the first is worth re-exporting the file over.
+ *
+ * Closed to start with. It is the source, not the decision, and a wall of text
+ * above the form would bury the thing this screen is actually asking for.
+ */
+function ExtractedTextCard({ extracted }: { extracted: ExtractedText }) {
+  const [open, setOpen] = useState(false);
+  const lines = extracted.text === '' ? 0 : extracted.text.split('\n').length;
+
+  return (
+    <Card>
+      <CardHeader
+        title="The text read out of your file"
+        subtitle="What the reader saw. Everything below was split out of this — if a line is missing here, it was never in the file as text, and no amount of correcting below will find it."
+        action={
+          <Button size="sm" variant="ghost" onClick={() => setOpen(!open)}>
+            {open ? 'Hide it' : 'Show it'}
+          </Button>
+        }
+      />
+      <div className="space-y-3 px-5 py-4">
+        <p className="text-xs text-[var(--ink-muted)]">
+          {extracted.chars.toLocaleString()} characters, {lines.toLocaleString()}{' '}
+          line{lines === 1 ? '' : 's'}
+          {extracted.truncated &&
+            ` — showing the first ${extracted.text.length.toLocaleString()}`}
+          .
+        </p>
+
+        {extracted.chars === 0 && (
+          <p className="text-xs" style={{ color: 'var(--status-warning)' }}>
+            Nothing came out of this file. That usually means it is a scan — a
+            picture of a page rather than text — and the pieces below will be empty.
+            Export a fresh PDF from the document it was written in.
+          </p>
+        )}
+
+        {open && extracted.chars > 0 && (
+          // Preserved exactly, blank lines and all: the line breaks and the run of
+          // spaces are what the parser reads sections off, so a version reflowed
+          // for looks would be a different document from the one being explained.
+          <pre className="max-h-[28rem] overflow-auto rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-sunken)] px-3.5 py-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[var(--ink-secondary)]">
+            {extracted.text}
+          </pre>
+        )}
+      </div>
+    </Card>
   );
 }
 

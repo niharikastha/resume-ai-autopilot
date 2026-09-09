@@ -27,8 +27,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // default theme. suppressHydrationWarning is required because next-themes
     // rewrites this attribute before React hydrates.
     <html lang="en" className="dark" suppressHydrationWarning>
-      {/* `ambient` paints the fixed radial wash behind everything. */}
-      <body className="ambient min-h-screen antialiased">
+      {/* `ambient` paints the fixed radial wash behind everything.
+          suppressHydrationWarning here is for a different reason than the one on
+          <html>: browser extensions add their own attributes to <body> before
+          React hydrates - ColorZilla's `cz-shortcut-listen="true"` is the one
+          reported here - and React counts that as the server and client
+          disagreeing. Nothing in this app writes to <body>, so there is no real
+          mismatch for the warning to catch, and an extension nobody controls
+          should not print a page-wide error in development.
+          It suppresses ATTRIBUTES ON THIS TAG ONLY, not on its children, so a
+          genuine mismatch anywhere inside still reports. */}
+      <body className="ambient min-h-screen antialiased" suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

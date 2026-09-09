@@ -58,11 +58,22 @@ function refreshSession(): Promise<boolean> {
 }
 
 async function send(path: string, init?: RequestInit): Promise<Response> {
+  // FormData is the one body this header must NOT be set for, and setting it is
+  // not a cosmetic mistake: the server's json parser believes the header, tries to
+  // parse the multipart body, and fails on the boundary line - which reaches the
+  // screen as `Unexpected token '-', "------WebK"... is not valid JSON`. Measured
+  // against the running API: with this header a resume upload is a 400 before any
+  // guard runs; without it the same request is handled normally.
+  //
+  // Left unset, the browser fills it in itself, with the boundary parameter that
+  // only the browser knows - see api.upload.
+  const isForm = init?.body instanceof FormData;
+
   return fetch(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
     headers: {
-      ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      ...(init?.body && !isForm ? { 'content-type': 'application/json' } : {}),
       ...init?.headers,
     },
   });
@@ -132,12 +143,10 @@ export const api = {
   /**
    * A multipart upload, and the ONE call that must not go through `api.post`.
    *
-   * `send` sets content-type: application/json whenever there is a body. For
-   * FormData that header is actively wrong: multipart needs a boundary parameter,
-   * the browser is the only thing that knows the boundary it generated, and it
-   * only fills the header in when the header is absent. Setting it by hand
-   * produces a request the server cannot split into fields - which arrives as a
-   * confusing "no file arrived" rather than as an obvious content-type error.
+   * `api.post` calls JSON.stringify on the body, and FormData stringifies to
+   * `{}` - so the file would silently not be sent at all. The content-type is
+   * handled in `send`, which leaves it alone for FormData so the browser can add
+   * the boundary parameter only it knows.
    */
   upload: <T>(path: string, file: File, field = 'file') => {
     const form = new FormData();
@@ -429,7 +438,22 @@ export interface AtomRow extends ParsedAtom {
   embeddedTextHash: string | null;
 }
 
-/** What comes back from the upload step. Nothing has been stored yet. */
+/**
+ * The text the server got out of the file, before it split anything up.
+ *
+ * `chars` is the true length even when `text` was cut short, so the screen can say
+ * how much it is not showing.
+ */
+export interface ExtractedText {
+  text: string;
+  chars: number;
+  truncated: boolean;
+}
+
+/**
+ * What comes back from the upload step. No database rows have been written - the
+ * file itself IS saved, under backend/uploads, which is what `uploadId` names.
+ */
 export interface UploadResult {
   /** Hand this back with the confirmation, unchanged. */
   uploadId: string;
@@ -442,6 +466,9 @@ export interface UploadResult {
   atoms: ParsedAtom[];
   counts: AtomCounts;
   techUnion: string[];
+  /** Everything below was derived from this. Shown so a missing bullet can be
+   *  told apart from a bullet the parser filed in the wrong place. */
+  extracted: ExtractedText;
 }
 
 export interface Integrations {

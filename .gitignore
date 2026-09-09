@@ -27,6 +27,13 @@ next-env.d.ts
 # in here carries the candidate's real name, phone number and email.
 .artifacts/
 
+# Uploaded resumes (RESUME_UPLOAD_DIR, default backend/uploads). The candidate's
+# own file, whole - name, phone number, address, employers. Unanchored for the same
+# reason as .artifacts above: the default is relative to the process cwd, which is
+# backend/ for the API. This is the one directory in the tree that holds a document
+# a person handed over rather than something the code generated.
+uploads/
+
 # Playwright's persistent browser profile for the submit session (phase 6).
 # Contains live login cookies for job sites - must never be committed.
 /.browser-profile/
