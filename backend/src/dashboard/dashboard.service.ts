@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ApplicationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { missingRequiredAnswers, toStatedAnswers } from '../submission/answers';
 
 /**
  * Regexes mirroring the spike's relevance filters, kept in SQL so the funnel is
@@ -136,7 +137,10 @@ export class DashboardService {
         phase: 'phase 3',
       });
     }
-    if (!answers?.workAuthorization || answers.noticePeriodDays === null) {
+    // The same rule the answers screen marks its own fields with, imported rather
+    // than repeated: two readings of "which answers are missing" is a screen that
+    // says you are finished while this blocker still says you are not.
+    if (missingRequiredAnswers(toStatedAnswers(answers)).length > 0) {
       blockers.push({
         key: 'missing_answers',
         label:

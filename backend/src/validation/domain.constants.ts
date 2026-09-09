@@ -53,6 +53,17 @@ export const SALARY_MAX = 99_999_999_999.99;
 export const NOTICE_PERIOD_DAYS_MIN = 0;
 export const NOTICE_PERIOD_DAYS_MAX = 365;
 
+/**
+ * ApplicationAnswers.customAnswers - how many saved screening questions one
+ * candidate may keep.
+ *
+ * A cap rather than no cap because this is free text stored forever in a JSON
+ * column, and the filler scans every entry for each field it meets. 50 is far past
+ * what the recurring questions actually amount to: sponsorship, notice, relocation,
+ * why-this-company and a handful of board-specific ones.
+ */
+export const CUSTOM_ANSWERS_MAX = 50;
+
 /** JobPosting.yoeMin / yoeMax. */
 export const YOE_MIN = 0;
 export const YOE_MAX = 60;

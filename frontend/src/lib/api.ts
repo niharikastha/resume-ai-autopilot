@@ -249,6 +249,41 @@ export interface PreferencesView {
   matchingNow: number;
 }
 
+/** One recurring screening question the candidate has already answered by hand. */
+export interface CustomAnswer {
+  question: string;
+  answer: string;
+}
+
+/**
+ * The answers typed into application forms, exactly as the API sends and takes them.
+ *
+ * Money is a STRING on purpose: these go into a real employer's salary box, and a
+ * JSON number round-trip is how 12.1 becomes 12.099999999999999. Null everywhere
+ * means "not answered", which the form filler leaves blank rather than guessing.
+ */
+export interface StatedAnswers {
+  workAuthorization: string | null;
+  needsSponsorship: boolean | null;
+  noticePeriodDays: number | null;
+  currentCtcLpa: string | null;
+  expectedCtcLpa: string | null;
+  willingToRelocate: boolean | null;
+  /** yyyy-mm-dd. */
+  earliestStartDate: string | null;
+  customAnswers: CustomAnswer[];
+}
+
+export interface AnswersView {
+  answers: StatedAnswers;
+  /** False until something has been saved at least once. */
+  stated: boolean;
+  updatedAt: string | null;
+  /** Field names an application cannot be prepared without. Same list the daily
+   *  digest and the dashboard blocker read. */
+  missing: string[];
+}
+
 export interface ApplicationRow {
   id: string;
   status: string;

@@ -32,16 +32,11 @@ import {
   AtsType,
   MatchDecision,
   Prisma,
-  type ApplicationAnswers,
 } from '@prisma/client';
 import { resolve } from 'node:path';
 import { loadTargets } from '../config/targets';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  NO_STATED_ANSWERS,
-  type AnswerSet,
-  type StatedAnswers,
-} from './answers';
+import { toStatedAnswers, type AnswerSet } from './answers';
 import {
   coverage,
   type PreparedApplication,
@@ -453,7 +448,7 @@ export class SubmissionService {
 
     return {
       profile,
-      stated: toStated(stated),
+      stated: toStatedAnswers(stated),
       resumePath: planned.resumePath,
       coverLetter: planned.coverLetter,
     };
@@ -528,47 +523,6 @@ export class SubmissionService {
     }
     return chosen[0];
   }
-}
-
-/**
- * The stored statements, or the absence of them.
- *
- * Decimal to string rather than to number, deliberately. These are money: 12.10 LPA
- * typed into an employer's form has to read as 12.10, and a float round-trip is how
- * that becomes 12.1 - or, for less friendly values, 12.099999999999999.
- */
-function toStated(row: ApplicationAnswers | null): StatedAnswers {
-  if (!row) return NO_STATED_ANSWERS;
-  return {
-    workAuthorization: row.workAuthorization,
-    needsSponsorship: row.needsSponsorship,
-    noticePeriodDays: row.noticePeriodDays,
-    currentCtcLpa: row.currentCtcLpa?.toString() ?? null,
-    expectedCtcLpa: row.expectedCtcLpa?.toString() ?? null,
-    willingToRelocate: row.willingToRelocate,
-    earliestStartDate: row.earliestStartDate,
-    customAnswers: toCustomAnswers(row.customAnswers),
-  };
-}
-
-/**
- * `customAnswers` is a Json column, so it is whatever was written into it.
- *
- * Narrowed rather than cast: a nested object in there would otherwise become the
- * string "[object Object]" typed into a real employer's form.
- */
-function toCustomAnswers(
-  value: Prisma.JsonValue | null,
-): Record<string, string> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    return {};
-  const out: Record<string, string> = {};
-  for (const [question, answer] of Object.entries(value)) {
-    if (typeof answer === 'string' && answer.trim().length > 0) {
-      out[question] = answer;
-    }
-  }
-  return out;
 }
 
 function absolute(path: string | null): string | null {

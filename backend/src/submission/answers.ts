@@ -22,6 +22,7 @@
  * only to decide which of these keys a strange label is asking for; the value that
  * gets typed always comes from here.
  */
+import type { ApplicationAnswers, Prisma } from '@prisma/client';
 import type { AnswerKey } from './field-policy';
 
 /**
@@ -86,6 +87,100 @@ export const NO_STATED_ANSWERS: StatedAnswers = {
   earliestStartDate: null,
   customAnswers: {},
 };
+
+/**
+ * The stored statements, or the absence of them.
+ *
+ * Decimal to string rather than to number, deliberately. These are money, and they get
+ * typed into a real employer's salary box: a float round-trip is how a figure the
+ * candidate entered as 12.1 arrives as 12.099999999999999. Decimal.toString drops a
+ * trailing zero (12.10 reads back as 12.1), which is the same number; a float would
+ * not be.
+ *
+ * Here rather than in the submission service because the answers SCREEN reads the
+ * same row and has to show what will actually be typed. Two conversions would be two
+ * chances for the form to display a figure the filler does not use.
+ */
+export function toStatedAnswers(row: ApplicationAnswers | null): StatedAnswers {
+  if (!row) return NO_STATED_ANSWERS;
+  return {
+    workAuthorization: row.workAuthorization,
+    needsSponsorship: row.needsSponsorship,
+    noticePeriodDays: row.noticePeriodDays,
+    currentCtcLpa: row.currentCtcLpa?.toString() ?? null,
+    expectedCtcLpa: row.expectedCtcLpa?.toString() ?? null,
+    willingToRelocate: row.willingToRelocate,
+    earliestStartDate: row.earliestStartDate,
+    customAnswers: toCustomAnswers(row.customAnswers),
+  };
+}
+
+/**
+ * `customAnswers` is a Json column, so it is whatever was written into it.
+ *
+ * Narrowed rather than cast: a nested object in there would otherwise become the
+ * string "[object Object]" typed into a real employer's form.
+ */
+export function toCustomAnswers(
+  value: Prisma.JsonValue | null,
+): Record<string, string> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    return {};
+  const out: Record<string, string> = {};
+  for (const [question, answer] of Object.entries(value)) {
+    if (typeof answer === 'string' && answer.trim().length > 0) {
+      out[question] = answer;
+    }
+  }
+  return out;
+}
+
+/** The answers essentially every Indian application form asks for. */
+export type RequiredAnswerKey =
+  | 'workAuthorization'
+  | 'needsSponsorship'
+  | 'noticePeriodDays'
+  | 'expectedCtcLpa';
+
+/**
+ * The words the form uses, not the column names.
+ *
+ * The person reading this is being asked to go and fill something in, on a phone, at
+ * 09:00. "needsSponsorship" is not what the box is called.
+ */
+export const REQUIRED_ANSWER_LABEL: Record<RequiredAnswerKey, string> = {
+  workAuthorization: 'work authorisation',
+  needsSponsorship: 'whether you need sponsorship',
+  noticePeriodDays: 'notice period',
+  expectedCtcLpa: 'expected CTC',
+};
+
+/**
+ * The answers an application cannot sensibly be prepared without.
+ *
+ * ONE RULE, IN ONE PLACE. The digest nags about these four, the dashboard raises its
+ * blocker from the same list and the answers screen marks the same fields. Three
+ * readings of "which answers are missing" is a screen that says you are finished while
+ * the digest is still asking, which is how a candidate learns to ignore both.
+ *
+ * Deliberately these four and not all seven. Current CTC is blank for a first job and
+ * relocation is blank for someone who will not, and nagging forever about a box that
+ * does not apply teaches people to dismiss the warning that does.
+ *
+ * `=== null` and not falsy, for a reason: `false` is a real answer to "do you need
+ * sponsorship", and 0 is a real notice period. Treating either as absent would ask the
+ * candidate to fill in what they already filled in.
+ */
+export function missingRequiredAnswers(
+  stated: StatedAnswers,
+): RequiredAnswerKey[] {
+  const missing: RequiredAnswerKey[] = [];
+  if (!stated.workAuthorization?.trim()) missing.push('workAuthorization');
+  if (stated.needsSponsorship === null) missing.push('needsSponsorship');
+  if (stated.noticePeriodDays === null) missing.push('noticePeriodDays');
+  if (stated.expectedCtcLpa === null) missing.push('expectedCtcLpa');
+  return missing;
+}
 
 /**
  * The value for one key, or null to leave the field alone.

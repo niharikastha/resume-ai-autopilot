@@ -13,6 +13,8 @@
  */
 import { Module } from '@nestjs/common';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
+import { AnswersController } from './answers.controller';
+import { AnswersService } from './answers.service';
 import { PreferencesController } from './preferences.controller';
 import { PreferencesService } from './preferences.service';
 import { ProfileService } from './profile.service';
@@ -26,8 +28,17 @@ import { ResumeController } from './resume.controller';
   // candidate can state. MatchingService does NOT go through the service - it reads
   // the row itself via a pure mapping in config/locations.ts, so the two CLI
   // containers that assemble matching by hand need no extra provider.
-  controllers: [ResumeController, PreferencesController],
-  providers: [ProfileService, ResumeLibraryService, PreferencesService],
+  // AnswersController is here for the same reason: work authorization, notice period
+  // and CTC are facts only the candidate can state. The submission path reads the row
+  // it writes, and the conversion between the two lives in submission/answers.ts so
+  // the screen shows exactly what the filler will type.
+  controllers: [ResumeController, PreferencesController, AnswersController],
+  providers: [
+    ProfileService,
+    ResumeLibraryService,
+    PreferencesService,
+    AnswersService,
+  ],
   exports: [ProfileService, ResumeLibraryService],
 })
 export class ProfileModule {}

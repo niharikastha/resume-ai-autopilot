@@ -14,18 +14,17 @@ import {
 import { api, type UserOverview } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { relativeTime } from '@/lib/utils';
+import { AnswersCard } from './answers';
 import { LocationsCard } from './locations';
 
 /**
- * Mostly read-only. Application answers are phase 6, and resumes have their own screen
- * now - uploading, choosing the one in use and editing its pieces all live under
- * /app/resumes, because that is three actions on a list rather than one field on
- * an account page.
+ * The two things only the candidate can state, and the account they belong to.
  *
- * What is left here is the account itself, where the candidate is willing to work
- * (locations.tsx - the one thing on this page that is written) and the trust
- * boundaries, which are worth stating on their own screen regardless of what is
- * wired up.
+ * Resumes have their own screen now - uploading, choosing the one in use and editing
+ * its pieces all live under /app/resumes, because that is three actions on a list
+ * rather than one field on an account page. What is left here is the account itself,
+ * where they will work (locations.tsx), the answers a form asks for (answers.tsx) and
+ * the trust boundaries, which are worth stating on a screen of their own.
  */
 export default function ProfilePage() {
   const { user } = useAuth();
@@ -134,24 +133,10 @@ export default function ProfilePage() {
             something only the candidate can state. */}
         <LocationsCard />
 
-        <Card>
-          <CardHeader
-            title="Application answers"
-            subtitle="Work authorization, notice period, current and expected CTC, relocation."
-          />
-          <div className="space-y-3 px-5 py-4 text-sm text-[var(--ink-secondary)]">
-            <p>
-              These are filled in by you, once, and reused. They are never
-              inferred, never generated and never editable by an administrator —
-              guessing someone&apos;s visa status or salary onto a real job
-              application is worse than leaving the pipeline blocked.
-            </p>
-            <p className="text-xs text-[var(--ink-muted)]">
-              The form arrives in phase 6, alongside the assisted-apply step that
-              consumes it.
-            </p>
-          </div>
-        </Card>
+        {/* The answers themselves. Never inferred, never generated and not visible to
+            an administrator - guessing someone's visa status or salary onto a real job
+            application is worse than leaving the pipeline blocked. */}
+        <AnswersCard />
 
         <Card>
           <CardHeader title="What is never asked or answered for you" />

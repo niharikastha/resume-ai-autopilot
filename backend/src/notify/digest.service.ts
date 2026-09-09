@@ -28,6 +28,11 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  missingRequiredAnswers,
+  NO_STATED_ANSWERS,
+  REQUIRED_ANSWER_LABEL,
+} from '../submission/answers';
+import {
   readPayload,
   TOP_MATCHES,
   type DigestBoard,
@@ -508,24 +513,16 @@ export function missingAnswers(
     expectedCtcLpa: Prisma.Decimal | null;
   } | null,
 ): string[] {
-  if (!answers) {
-    return [
-      'work authorisation',
-      'whether you need sponsorship',
-      'notice period',
-      'expected CTC',
-    ];
-  }
-  const missing: string[] = [];
-  if (!answers.workAuthorization) missing.push('work authorisation');
-  // `=== null` and not falsy: `false` is a real answer to "do you need sponsorship",
-  // and treating it as absent would ask the candidate to fill in what they already did.
-  if (answers.needsSponsorship === null) {
-    missing.push('whether you need sponsorship');
-  }
-  if (answers.noticePeriodDays === null) missing.push('notice period');
-  if (answers.expectedCtcLpa === null) missing.push('expected CTC');
-  return missing;
+  // The rule itself lives in submission/answers.ts, next to the code that types these
+  // values into a form, and the answers SCREEN marks its fields from the same list.
+  // This function is only the translation into the words the digest speaks.
+  return missingRequiredAnswers({
+    ...NO_STATED_ANSWERS,
+    workAuthorization: answers?.workAuthorization ?? null,
+    needsSponsorship: answers?.needsSponsorship ?? null,
+    noticePeriodDays: answers?.noticePeriodDays ?? null,
+    expectedCtcLpa: answers?.expectedCtcLpa?.toString() ?? null,
+  }).map((key) => REQUIRED_ANSWER_LABEL[key]);
 }
 
 /**
