@@ -99,8 +99,21 @@ export const envSchema = z.object({
    * NOT under `backend/src`: these are generated artifacts containing the
    * candidate's real contact details, and the default therefore sits somewhere
    * .gitignore already covers.
+   *
+   * `generated-resumes/` at the root of that directory, so in practice
+   * `backend/generated-resumes/`. It moved out of `.artifacts/` for the same
+   * reason the uploads did: .artifacts is the scratch directory, and somebody
+   * emptying it is entitled to assume nothing there mattered. These files DO
+   * matter for as long as an application is open - the pdf sitting in a queued
+   * application is the exact document that will be attached, and regenerating it
+   * means another round of Opus calls and a fresh trip through the provenance
+   * guard, which is not guaranteed to produce the same resume twice.
+   *
+   * The name is not `resumes/`: the ignore rules here are deliberately unanchored,
+   * and an unanchored `resumes/` would also ignore
+   * `frontend/src/app/app/resumes/`, which is source code.
    */
-  RESUME_OUTPUT_DIR: blank(z.string().default('.artifacts/resumes')),
+  RESUME_OUTPUT_DIR: blank(z.string().default('generated-resumes')),
 
   /**
    * Where resumes UPLOADED through the web app are kept.

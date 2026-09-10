@@ -13,6 +13,8 @@ import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { LlmModule } from '../llm/llm.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { QueueModule } from '../queue/queue.module';
+import { MatchesController } from './matches.controller';
+import { MatchesService } from './matches.service';
 import { MatchingProcessor } from './matching.processor';
 import { MatchingScheduler } from './matching.scheduler';
 import { MatchingService } from './matching.service';
@@ -25,8 +27,13 @@ import { MatchingService } from './matching.service';
     LlmModule,
     QueueModule,
   ],
+  controllers: [MatchesController],
   providers: [
     MatchingService,
+    // The web app's way in: enqueues onto the same SCORE queue the 07:00 cron uses,
+    // so a hand-started run and a scheduled one are the same run through the same
+    // processor, with the same concurrency limit of one.
+    MatchesService,
     // Registered in both processes, exactly as DiscoveryModule does it: the processor
     // is inert in the api because BullMQ only pulls work where a worker connection
     // exists, and the scheduler's @Cron self-gates on AUTOPILOT_ROLE.

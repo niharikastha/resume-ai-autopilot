@@ -8,19 +8,25 @@
  * a message before a person sees it, so a one-click "not for me" in an inbox gets pressed
  * by a spam filter. The buttons live behind a session, here.
  *
- * WHY A DECIDED POSTING STAYS ON THE LIST. The digest is a stored snapshot of one
- * morning, not a live query - see DigestMatch in lib/api.ts. Removing a row would make
- * the page disagree with the email that was sent from the same payload. So the answer is
- * shown on the row, with an undo, and the count at the top is the one that moves.
+ * SNAPSHOT FOR THE RECORD, LIVE FOR THE ASKS. The payload is a stored snapshot of one
+ * morning - see DigestMatch in lib/api.ts - and the descriptive parts stay that way, so
+ * this page and the email that was sent from it never disagree. But anything that ASKS
+ * the reader for something is checked against the present: a nag to fill in an answer
+ * that was filled in at lunchtime, or a Yes/No on a job already answered elsewhere, is
+ * how a person learns to ignore the page. So the answers card and each row's buttons read
+ * live state, while the counts and the wording remain the morning's.
+ *
+ * WHY A DECIDED POSTING STAYS ON THE LIST. Removing a row would make the page disagree
+ * with the email. So the answer is shown on the row, with an undo.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check,
+  ChevronDown,
   CircleAlert,
   ExternalLink,
   Hourglass,
-  Mail,
   Send,
   Sparkles,
   Sun,
@@ -44,12 +50,16 @@ import {
 } from '@/components/ui';
 import {
   api,
+  REQUIRED_ANSWER_LABEL,
+  type AnswersView,
   type DigestMatch,
   type DigestRow,
   type DigestSendResult,
   type MatchDecision,
+  type MatchSuggestion,
+  type MatchSummary,
 } from '@/lib/api';
-import { relativeTime } from '@/lib/utils';
+import { dayLabel, relativeTime } from '@/lib/utils';
 
 export default function DigestPage() {
   const toast = useToast();
@@ -58,8 +68,8 @@ export default function DigestPage() {
   /**
    * The answers given on this visit, by job id.
    *
-   * Local because the payload is a snapshot. It is not a cache of the server's state -
-   * it is "what I have just said", which is exactly what the row needs to show.
+   * Separate from the live decisions below and checked FIRST, because it is the more
+   * recent of the two: a press here is newer than anything the last fetch knows.
    */
   const [decided, setDecided] = useState<Record<string, MatchDecision>>({});
 
@@ -78,6 +88,26 @@ export default function DigestPage() {
     queryFn: () => api.get<{ count: number }>('/api/me/digests/unread'),
   });
 
+  /** What is actually still blank on the answers form, right now. */
+  const answers = useQuery({
+    queryKey: ['me', 'answers'],
+    queryFn: () => api.get<AnswersView>('/api/me/answers'),
+  });
+
+  /** The yes/no already recorded for each posting, right now. Same list the
+   *  suggestions page shows, so the two screens cannot contradict each other. */
+  const live = useQuery({
+    queryKey: ['me', 'matches'],
+    queryFn: () => api.get<MatchSuggestion[]>('/api/me/matches?limit=200'),
+  });
+
+  /** How many are still waiting, counted server-side. Not summed from `live`, which is
+   *  a capped page and would stop growing at 200 without saying so. */
+  const summary = useQuery({
+    queryKey: ['me', 'matches', 'summary'],
+    queryFn: () => api.get<MatchSummary>('/api/me/matches/summary'),
+  });
+
   const decide = useMutation({
     mutationFn: ({ jobId, decision }: { jobId: string; decision: MatchDecision }) =>
       api.patch<void>(`/api/me/jobs/${jobId}/decision`, { decision }),
@@ -91,6 +121,8 @@ export default function DigestPage() {
         delete next[jobId];
         return next;
       });
+      // The suggestions page reads the same rows, and this is the shared cache key.
+      void queryClient.invalidateQueries({ queryKey: ['me', 'matches'] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -174,7 +206,7 @@ export default function DigestPage() {
   if (!payload) {
     return (
       <>
-        <PageHeader title="This morning" subtitle={data.day} />
+        <PageHeader title="This morning" subtitle={dayLabel(data.day)} />
         <div className="px-4 pb-6 sm:px-6">
           <Card>
             <EmptyState
@@ -194,228 +226,355 @@ export default function DigestPage() {
   }
 
   const c = payload.candidate;
-  const answered = Object.keys(decided).length;
-  const left = Math.max(0, c.undecided - answered);
+
+  /**
+   * The decision on each posting as of the last fetch. Only real answers are kept:
+   * an explicit UNDECIDED belongs out of the map so a row falls back to its buttons.
+   */
+  const liveDecisions: Record<string, MatchDecision> = {};
+  for (const row of live.data ?? []) {
+    if (row.decision !== 'UNDECIDED') liveDecisions[row.jobId] = row.decision;
+  }
+  const decisionFor = (jobId: string): MatchDecision | undefined =>
+    decided[jobId] ?? liveDecisions[jobId];
+
+  // The live count, so a morning's work done at lunch does not still read as waiting.
+  // The presses made on this visit are subtracted on top, because the server's number is
+  // as of the last fetch. Falls back to the snapshot until that fetch lands.
+  const answeredHere = Object.keys(decided).filter(
+    (jobId) => liveDecisions[jobId] === undefined,
+  ).length;
+  const left = Math.max(
+    0,
+    (summary.data?.undecided ?? c.undecided) - answeredHere,
+  );
+
+  // The nag, checked against the form as it stands now rather than as it stood at 9am.
+  const stillMissing = answers.data?.missing ?? [];
 
   return (
     <>
       <PageHeader
         title="This morning"
-        subtitle={`${payload.day} · counted since ${relativeTime(payload.since)}`}
-      />
+        subtitle={`${dayLabel(payload.day)} · everything below is counted since ${relativeTime(payload.since)}`}
+      >
+        <Button
+          size="sm"
+          icon={Send}
+          busy={send.isPending}
+          onClick={() => send.mutate()}
+        >
+          Email me a copy
+        </Button>
+      </PageHeader>
 
-      <div className="space-y-5 px-4 pb-6 sm:px-6">
-        <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile
-            label="New matches"
-            value={c.newMatches}
-            hint="scored since the last digest"
-            icon={Sparkles}
-            emphasis
-          />
-          <StatTile
-            label="Waiting for your yes or no"
-            value={left}
-            hint={answered > 0 ? `${answered} answered just now` : 'this is the list below'}
-            icon={Hourglass}
-            tone={left > 0 ? 'accent' : 'default'}
-            emphasis
-          />
-          <StatTile
-            label="Forms filled, ready to send"
-            value={c.preparedWaiting}
-            hint="you press submit, never us"
-            icon={Send}
-            tone={c.preparedWaiting > 0 ? 'accent' : 'default'}
-          />
-          <StatTile
-            label="Sent since the last digest"
-            value={c.submitted}
-            hint="counted only on a confirmation page"
-            icon={Check}
-          />
-        </div>
-
-        {/* Above the job list, deliberately: it is the one thing here that can be fixed
-            in two minutes, and until it is, every form is submitted with a box empty. */}
-        {c.missingAnswers.length > 0 && (
+      <div className="space-y-6 px-4 pb-10 sm:px-6">
+        {/* THE ASK, above everything. It is the one thing here that can be fixed in two
+            minutes, and until it is, every form is submitted with a box empty. Shown
+            only once the live answers are known, so a stale nag never flashes up. */}
+        {stillMissing.length > 0 && (
           <Card glow>
             <CardHeader
-              title="Your forms are missing some answers"
+              title={
+                stillMissing.length === 1
+                  ? 'One answer is still missing'
+                  : `${stillMissing.length} answers are still missing`
+              }
               subtitle="Application forms ask for these. Until they are filled in, they are left blank."
-            />
-            <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-              {c.missingAnswers.map((answer) => (
-                <Badge key={answer} tone="warning">
-                  {answer}
-                </Badge>
-              ))}
-              <Link href="/app/profile" className="ml-auto">
-                <Button size="sm">Fill them in</Button>
-              </Link>
-            </div>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader
-            title="Do you want these?"
-            subtitle="No is the useful answer. It stops a tailored resume being written and a form being opened for a job you would not take."
-          />
-          {c.top.length === 0 ? (
-            <EmptyState
-              icon={Check}
-              title="Nothing is waiting for a decision"
-              detail="Everything scored so far has been answered, or nothing has been scored yet."
-            />
-          ) : (
-            <ul>
-              {c.top.map((match) => (
-                <MatchRow
-                  key={match.jobId}
-                  match={match}
-                  decision={decided[match.jobId]}
-                  busy={decide.isPending && decide.variables?.jobId === match.jobId}
-                  onDecide={(decision) => decide.mutate({ jobId: match.jobId, decision })}
-                />
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {c.tailored > 0 && (
-          <Card>
-            <CardHeader
-              title="Resumes written for you"
-              subtitle="Each one is checked against your own resume before it is used. A rewrite that claims something your resume does not is thrown away."
-            />
-            <div className="px-5 py-4 text-sm text-[var(--ink-secondary)]">
-              <span className="figure font-semibold text-[var(--ink-primary)]">
-                {c.tailored}
-              </span>{' '}
-              written,{' '}
-              <span className="figure font-semibold text-[var(--ink-primary)]">
-                {c.guardFailed}
-              </span>{' '}
-              thrown away
-              {c.guardFailureRate !== null && ` (${Math.round(c.guardFailureRate * 100)}%)`}.
-              {c.guardFailed > 0 &&
-                ' A thrown-away one means your plain resume was used instead, so nothing was lost.'}
-            </div>
-          </Card>
-        )}
-
-        {payload.system && (
-          <Card>
-            <CardHeader
-              title="The machine"
-              subtitle="Only you see this section. It is about the job boards, not about your search."
-            />
-            <div className="space-y-3 px-5 py-4 text-sm">
-              <p className="text-[var(--ink-secondary)]">
-                {payload.system.newCompanies} new company(ies),{' '}
-                {payload.system.newPostings} new posting(s). Last fetch{' '}
-                {payload.system.lastDiscoveryAt
-                  ? relativeTime(payload.system.lastDiscoveryAt)
-                  : 'never'}
-                .
-              </p>
-              {payload.system.deadBoards.length > 0 && (
-                <ul className="space-y-1">
-                  {payload.system.deadBoards.map((dead) => (
-                    <li key={dead.source} className="flex items-start gap-2 text-xs">
-                      <CircleAlert
-                        size={14}
-                        aria-hidden
-                        className="mt-px shrink-0"
-                        style={{ color: 'var(--status-warning)' }}
-                      />
-                      <span className="text-[var(--ink-secondary)]">
-                        <strong className="text-[var(--ink-primary)]">
-                          {dead.source}
-                        </strong>{' '}
-                        — {dead.reason}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {payload.system.modelUse.length > 0 && (
-                <p className="text-xs text-[var(--ink-muted)]">
-                  {/* Calls and not tokens, because token counts are logged per call and
-                      never stored. Labelling these as spend would be a made-up number. */}
-                  AI calls:{' '}
-                  {payload.system.modelUse
-                    .map((use) => `${use.calls} × ${use.model}`)
-                    .join(', ')}
-                </p>
-              )}
-            </div>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader title="Where this went" subtitle="The copy on this page is the original. The rest are copies of it." />
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 text-sm text-[var(--ink-secondary)]">
-            <span className="inline-flex items-center gap-2">
-              <Mail size={14} aria-hidden className="text-[var(--ink-muted)]" />
-              {data.emailedAt
-                ? `Emailed ${relativeTime(data.emailedAt)}`
-                : 'Not emailed — email settings are not filled in'}
-            </span>
-            {data.telegramAt && <span>Sent to Telegram {relativeTime(data.telegramAt)}</span>}
-            {data.deliveryError && (
-              <span style={{ color: 'var(--status-warning)' }}>{data.deliveryError}</span>
-            )}
-            <Button
-              size="sm"
-              icon={Send}
-              busy={send.isPending}
-              onClick={() => send.mutate()}
-              className="ml-auto"
-            >
-              Send me a copy
-            </Button>
-          </div>
-        </Card>
-
-        {history.data && history.data.length > 1 && (
-          <Card>
-            <CardHeader
-              title="Earlier mornings"
-              subtitle={
-                unread.data && unread.data.count > 0
-                  ? `${unread.data.count} you have not opened. Each one covers the time since the one before it, so nothing is counted twice.`
-                  : 'Each one covers the time since the one before it, so nothing is counted twice.'
+              action={
+                <Link href="/app/profile">
+                  <Button size="sm" variant="primary">
+                    Fill them in
+                  </Button>
+                </Link>
               }
             />
-            <ul>
-              {history.data.map((row) => (
-                <li
-                  key={row.id}
-                  className="flex items-center gap-3 border-b border-[var(--border)] px-5 py-3 text-sm last:border-b-0"
-                >
-                  <span className="figure w-24 text-[var(--ink-primary)]">{row.day}</span>
-                  <span className="text-[var(--ink-secondary)]">
-                    {row.payload
-                      ? `${row.payload.candidate.newMatches} new, ${row.payload.candidate.undecided} to review`
-                      : 'from an older version'}
-                  </span>
-                  {!row.readAt && <Badge tone="accent">unopened</Badge>}
-                  <span className="ml-auto text-xs text-[var(--ink-muted)]">
-                    {row.emailedAt ? `emailed ${relativeTime(row.emailedAt)}` : 'not emailed'}
-                  </span>
+            <ul className="flex flex-wrap gap-2 px-5 py-4">
+              {stillMissing.map((key) => (
+                <li key={key}>
+                  <Badge tone="warning">
+                    {REQUIRED_ANSWER_LABEL[key] ?? key}
+                  </Badge>
                 </li>
               ))}
             </ul>
           </Card>
         )}
+
+        <section className="space-y-3">
+          <SectionLabel>Since the last digest</SectionLabel>
+          <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              label="New matches"
+              value={c.newMatches}
+              hint="scored since the last digest"
+              icon={Sparkles}
+              emphasis
+            />
+            <StatTile
+              label="Waiting for your yes or no"
+              value={left}
+              hint={left === 0 ? 'all caught up' : 'the list below'}
+              icon={Hourglass}
+              tone={left > 0 ? 'accent' : 'default'}
+              emphasis
+            />
+            <StatTile
+              label="Forms filled, ready to send"
+              value={c.preparedWaiting}
+              hint="you press submit, never us"
+              icon={Send}
+              tone={c.preparedWaiting > 0 ? 'accent' : 'default'}
+            />
+            <StatTile
+              label="Sent"
+              value={c.submitted}
+              hint="counted only on a confirmation page"
+              icon={Check}
+            />
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <SectionLabel>Your decisions</SectionLabel>
+          <Card>
+            <CardHeader
+              title="Do you want these?"
+              subtitle="No is the useful answer. It stops a tailored resume being written and a form being opened for a job you would not take."
+              action={
+                <Link href="/app/matches">
+                  <Button size="sm" variant="ghost">
+                    See all matches
+                  </Button>
+                </Link>
+              }
+            />
+            {c.top.length === 0 ? (
+              <EmptyState
+                icon={Check}
+                title="Nothing is waiting for a decision"
+                detail="Everything scored so far has been answered, or nothing has been scored yet."
+              />
+            ) : (
+              <ul>
+                {c.top.map((match) => (
+                  <MatchRow
+                    key={match.jobId}
+                    match={match}
+                    decision={decisionFor(match.jobId)}
+                    busy={decide.isPending && decide.variables?.jobId === match.jobId}
+                    onDecide={(decision) => decide.mutate({ jobId: match.jobId, decision })}
+                  />
+                ))}
+              </ul>
+            )}
+          </Card>
+        </section>
+
+        {/* Everything past here is a record rather than a request: quieter headings, and
+            the board diagnostics folded away. A candidate scrolling for their yes/no
+            should not have to walk past a list of dead job boards to reach it. */}
+        <section className="space-y-3">
+          <SectionLabel>For the record</SectionLabel>
+
+          <Card>
+            <dl className="divide-y divide-[var(--border)]">
+              {c.tailored > 0 && (
+                <Fact label="Resumes written for you">
+                  <span className="figure font-semibold text-[var(--ink-primary)]">
+                    {c.tailored}
+                  </span>{' '}
+                  written,{' '}
+                  <span className="figure font-semibold text-[var(--ink-primary)]">
+                    {c.guardFailed}
+                  </span>{' '}
+                  thrown away
+                  {c.guardFailureRate !== null &&
+                    ` (${Math.round(c.guardFailureRate * 100)}%)`}
+                  .
+                  {c.guardFailed > 0 &&
+                    ' A thrown-away one means your plain resume was used instead, so nothing was lost.'}
+                </Fact>
+              )}
+
+              <Fact label="Where this copy went">
+                {data.emailedAt
+                  ? `Emailed to you ${relativeTime(data.emailedAt)}.`
+                  : 'Not emailed — email settings are not filled in.'}
+                {data.telegramAt &&
+                  ` Sent to Telegram ${relativeTime(data.telegramAt)}.`}
+                {data.deliveryError && (
+                  <span style={{ color: 'var(--status-warning)' }}>
+                    {' '}
+                    {data.deliveryError}
+                  </span>
+                )}
+              </Fact>
+            </dl>
+          </Card>
+
+          {history.data && history.data.length > 1 && (
+            <Card>
+              <CardHeader
+                title="Earlier mornings"
+                subtitle={
+                  unread.data && unread.data.count > 0
+                    ? `${unread.data.count} you have not opened. Each one covers the time since the one before it, so nothing is counted twice.`
+                    : 'Each one covers the time since the one before it, so nothing is counted twice.'
+                }
+              />
+              <ul>
+                {history.data.map((row) => (
+                  <li
+                    key={row.id}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--border)] px-5 py-3 text-sm last:border-b-0"
+                  >
+                    <span className="w-40 shrink-0 text-[var(--ink-primary)]">
+                      {dayLabel(row.day)}
+                    </span>
+                    <span className="text-[var(--ink-secondary)]">
+                      {row.payload
+                        ? `${row.payload.candidate.newMatches} new, ${row.payload.candidate.undecided} to review`
+                        : 'from an older version'}
+                    </span>
+                    {!row.readAt && <Badge tone="accent">unopened</Badge>}
+                    <span className="ml-auto text-xs text-[var(--ink-muted)]">
+                      {row.emailedAt
+                        ? `emailed ${relativeTime(row.emailedAt)}`
+                        : 'not emailed'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {payload.system && <MachineCard system={payload.system} />}
+        </section>
       </div>
     </>
   );
 }
 
-/** One posting, with the two buttons and the answer once it has been given. */
+/** A quiet heading that groups cards, so the page has three parts instead of six peers. */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="px-1 text-[11px] font-semibold tracking-[0.08em] text-[var(--ink-muted)] uppercase">
+      {children}
+    </h2>
+  );
+}
+
+/** One label-and-sentence row inside a record card. */
+function Fact({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="px-5 py-4 sm:flex sm:gap-6">
+      <dt className="shrink-0 text-xs text-[var(--ink-muted)] sm:w-48 sm:pt-0.5">
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm leading-relaxed text-[var(--ink-secondary)] sm:mt-0">
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * The admin-only section about the job boards themselves.
+ *
+ * Folded shut. It is diagnostics about the machine, not about this person's search, and
+ * an unread wall of board errors above the yes/no buttons is what made the page feel
+ * like a log file. A dead board still shows its count on the closed summary, so nothing
+ * urgent is hidden behind the click.
+ */
+function MachineCard({
+  system,
+}: {
+  system: NonNullable<
+    NonNullable<DigestRow['payload']>['system']
+  >;
+}) {
+  const dead = system.deadBoards.length;
+
+  return (
+    <Card>
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 text-sm">
+          <ChevronDown
+            size={14}
+            aria-hidden
+            className="shrink-0 text-[var(--ink-muted)] transition-transform group-open:rotate-180"
+          />
+          <span className="font-medium text-[var(--ink-primary)]">
+            The job boards
+          </span>
+          <span className="text-xs text-[var(--ink-muted)]">
+            only you see this — it is about the machine, not your search
+          </span>
+          {dead > 0 && (
+            <Badge tone="warning">
+              {dead} not responding
+            </Badge>
+          )}
+        </summary>
+
+        <div className="space-y-3 border-t border-[var(--border)] px-5 py-4 text-sm">
+          <p className="text-[var(--ink-secondary)]">
+            {system.newCompanies} new company(ies), {system.newPostings} new
+            posting(s). Last fetch{' '}
+            {system.lastDiscoveryAt
+              ? relativeTime(system.lastDiscoveryAt)
+              : 'never'}
+            .
+          </p>
+          {dead > 0 && (
+            <ul className="space-y-1">
+              {system.deadBoards.map((board) => (
+                <li key={board.source} className="flex items-start gap-2 text-xs">
+                  <CircleAlert
+                    size={14}
+                    aria-hidden
+                    className="mt-px shrink-0"
+                    style={{ color: 'var(--status-warning)' }}
+                  />
+                  <span className="text-[var(--ink-secondary)]">
+                    <strong className="text-[var(--ink-primary)]">
+                      {board.source}
+                    </strong>{' '}
+                    — {board.reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {system.modelUse.length > 0 && (
+            <p className="text-xs text-[var(--ink-muted)]">
+              {/* Calls and not tokens, because token counts are logged per call and
+                  never stored. Labelling these as spend would be a made-up number. */}
+              AI calls:{' '}
+              {system.modelUse.map((use) => `${use.calls} × ${use.model}`).join(', ')}
+            </p>
+          )}
+        </div>
+      </details>
+    </Card>
+  );
+}
+
+/**
+ * One posting, with the two buttons and the answer once it has been given.
+ *
+ * A GRID, not a wrapping row. The old flex layout let the title, the link and both
+ * buttons all wrap independently, so at tablet width the buttons ended up under the
+ * score with the link stranded mid-line. Here the score and the title share the first
+ * line and the controls are one block that moves as a unit.
+ */
 function MatchRow({
   match,
   decision,
@@ -433,58 +592,75 @@ function MatchRow({
   ].filter((part): part is string => Boolean(part));
 
   return (
-    <li className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-5 py-3 last:border-b-0">
-      <span className="figure w-9 shrink-0 text-right text-sm font-semibold text-[var(--ink-primary)]">
-        {match.score}
-      </span>
-
-      <span className="min-w-[12rem] flex-1">
-        <span className="block text-sm font-medium text-[var(--ink-primary)]">
-          {match.title}
+    <li className="border-b border-[var(--border)] px-5 py-4 last:border-b-0">
+      <div className="flex items-start gap-4">
+        <span className="figure w-9 shrink-0 pt-0.5 text-right text-sm font-semibold text-[var(--ink-primary)]">
+          {match.score}
         </span>
-        <span className="block text-xs text-[var(--ink-muted)]">
-          {match.company}
-          {detail.length > 0 && ` · ${detail.join(' · ')}`}
-        </span>
-      </span>
 
-      <a
-        href={match.url}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="inline-flex items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border)] px-2 py-1 text-xs text-[var(--ink-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-      >
-        Read it
-        <ExternalLink size={11} aria-hidden />
-      </a>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-[var(--ink-primary)]">
+            {match.title}
+          </p>
+          <p className="truncate text-xs text-[var(--ink-muted)]">
+            {match.company}
+            {detail.length > 0 && ` · ${detail.join(' · ')}`}
+          </p>
+        </div>
 
-      {decision === undefined ? (
-        <span className="flex gap-2">
-          <Button size="sm" variant="primary" icon={Check} busy={busy} onClick={() => onDecide('WANTED')}>
-            Yes
-          </Button>
-          <Button size="sm" variant="danger" icon={X} busy={busy} onClick={() => onDecide('NOT_WANTED')}>
-            Not for me
-          </Button>
-        </span>
-      ) : (
-        <span className="flex items-center gap-2">
-          <Badge tone={decision === 'WANTED' ? 'good' : 'neutral'}>
-            {decision === 'WANTED' ? 'Yes' : 'Not for me'}
-          </Badge>
-          {/* Undo, because this is the one control on the page that changes what the
-              system will spend money on, and it is two taps away from a mis-tap. */}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={Undo2}
-            busy={busy}
-            onClick={() => onDecide('UNDECIDED')}
+        {/* One block, right-aligned, so it never breaks apart across lines. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <a
+            href={match.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border)] px-2 py-1.5 text-xs text-[var(--ink-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           >
-            Undo
-          </Button>
-        </span>
-      )}
+            Read it
+            <ExternalLink size={11} aria-hidden />
+          </a>
+
+          {decision === undefined ? (
+            <>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={Check}
+                busy={busy}
+                onClick={() => onDecide('WANTED')}
+              >
+                Yes
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                icon={X}
+                busy={busy}
+                onClick={() => onDecide('NOT_WANTED')}
+              >
+                No
+              </Button>
+            </>
+          ) : (
+            <>
+              <Badge tone={decision === 'WANTED' ? 'good' : 'neutral'}>
+                {decision === 'WANTED' ? 'Yes' : 'Not for me'}
+              </Badge>
+              {/* Undo, because this is the one control on the page that changes what the
+                  system will spend money on, and it is two taps away from a mis-tap. */}
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={Undo2}
+                busy={busy}
+                onClick={() => onDecide('UNDECIDED')}
+              >
+                Undo
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
     </li>
   );
 }

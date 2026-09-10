@@ -8,6 +8,7 @@ import {
   Plug,
   Search,
   Sun,
+  Target,
   UserRound,
   Users,
   type LucideIcon,
@@ -45,10 +46,16 @@ export const CANDIDATE_NAV: NavItem[] = [
     hint: 'This morning, and the yes/no it is asking for',
   },
   {
+    href: '/app/matches',
+    label: 'Where I can apply',
+    icon: Target,
+    hint: 'Your postings ranked against your resume, with the apply buttons',
+  },
+  {
     href: '/app/jobs',
-    label: 'Jobs',
+    label: 'All jobs',
     icon: Search,
-    hint: 'Everything discovered for you',
+    hint: 'Everything discovered for you, ranked or not',
   },
   {
     href: '/app/applications',
@@ -78,11 +85,16 @@ export const CANDIDATE_NAV: NavItem[] = [
  * in: a fifth 10px label starts truncating below about 380px. So the choice is written
  * down here. Nothing becomes unreachable: the command palette button is in the mobile
  * header too, and it lists every route.
+ *
+ * "Where I can apply" took the slot that "All jobs" had, rather than becoming a fifth
+ * tab. It is the same list with the scores and the buttons attached, so a phone loses
+ * nothing but the unscored postings - and staying at four keeps the labels readable on a
+ * 380px screen.
  */
 const MOBILE_HREFS = new Set<string>([
   '/app',
   '/app/digest',
-  '/app/jobs',
+  '/app/matches',
   '/app/applications',
 ]);
 

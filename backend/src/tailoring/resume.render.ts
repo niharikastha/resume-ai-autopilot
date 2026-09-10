@@ -405,8 +405,8 @@ export async function renderResume(
  * document LibreOffice could not read.
  *
  * ABSOLUTE, via path.resolve. `file://` takes an absolute path - everything after
- * the two slashes up to the next one is the HOST - so `file://.artifacts/resumes`
- * asks for a profile on a machine called ".artifacts", and RESUME_OUTPUT_DIR
+ * the two slashes up to the next one is the HOST - so `file://generated-resumes`
+ * asks for a profile on a machine called "generated-resumes", and RESUME_OUTPUT_DIR
  * defaults to exactly that kind of relative path. LibreOffice does not complain:
  * it hangs until the timeout and writes nothing, which this function then reports
  * as "conversion failed". Measured - every pdf was silently missing until the

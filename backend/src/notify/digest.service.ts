@@ -19,13 +19,8 @@
  * one row update and saves a deep-tier LLM call and a browser session.
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  ApplicationStatus,
-  MatchDecision,
-  MatchVerdict,
-  Prisma,
-  Role,
-} from '@prisma/client';
+import { ApplicationStatus, MatchDecision, Prisma, Role } from '@prisma/client';
+import { DECIDABLE } from '../matching/decidable';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   missingRequiredAnswers,
@@ -40,24 +35,6 @@ import {
   type DigestPayload,
   type DigestSystem,
 } from './digest.types';
-
-/**
- * The verdicts a candidate is asked to decide about.
- *
- * WEAK and REJECT are excluded: putting fifty rejected postings in front of someone
- * every morning trains them to ignore the digest, which costs more than the small
- * chance that the model was wrong about one of them. They remain on the Jobs page,
- * where looking at them is a deliberate act.
- *
- * BORDERLINE is INCLUDED here even though tailoring excludes it, and the difference is
- * the point: borderline is precisely the verdict that wants a human, and this is the
- * screen where a human is looking.
- */
-const DECIDABLE: MatchVerdict[] = [
-  MatchVerdict.STRONG,
-  MatchVerdict.GOOD,
-  MatchVerdict.BORDERLINE,
-];
 
 /** A day with nothing in it still gets a digest. See `build`. */
 const EMPTY_VERDICTS: Record<string, number> = {};

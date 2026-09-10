@@ -283,6 +283,21 @@ export interface StatedAnswers {
   customAnswers: CustomAnswer[];
 }
 
+/**
+ * The four answers an application cannot be prepared without, in the words a form uses.
+ *
+ * The KEYS are the truth and come from the server - `AnswersView.missing` names them.
+ * This is only the translation, and it mirrors REQUIRED_ANSWER_LABEL in the backend's
+ * submission/answers.ts. A key with no entry here falls back to the key itself, so a
+ * fifth required answer added server-side shows up ugly rather than invisibly.
+ */
+export const REQUIRED_ANSWER_LABEL: Record<string, string> = {
+  workAuthorization: 'Work authorisation',
+  needsSponsorship: 'Whether you need sponsorship',
+  noticePeriodDays: 'Notice period',
+  expectedCtcLpa: 'Expected CTC',
+};
+
 export interface AnswersView {
   answers: StatedAnswers;
   /** False until something has been saved at least once. */
@@ -490,6 +505,80 @@ export interface UploadResult {
   /** Everything below was derived from this. Shown so a missing bullet can be
    *  told apart from a bullet the parser filed in the wrong place. */
   extracted: ExtractedText;
+}
+
+// --- the suggestions list ---------------------------------------------------
+
+/** How far a matching run has got. Not BullMQ's vocabulary - see MatchesService. */
+export type RunState = 'idle' | 'queued' | 'running' | 'done' | 'failed';
+
+export interface MatchRunStatus {
+  state: RunState;
+  runId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Null until a run has finished. The four stages of the funnel, in order. */
+  counts: {
+    considered: number;
+    screened: number;
+    ranked: number;
+    scored: number;
+    failures: number;
+  } | null;
+  error: string | null;
+}
+
+/**
+ * How many postings are waiting on a decision, as of now.
+ *
+ * Counted server-side over the postings worth deciding about - not WEAK or REJECT - so
+ * it means the same thing as the digest's own morning count. A page needing this figure
+ * must not add up the list instead: that list is capped at 200 rows.
+ */
+export interface MatchSummary {
+  decidable: number;
+  undecided: number;
+  wanted: number;
+  notWanted: number;
+}
+
+/** What POST /api/me/matches/run answers. `started: false` means one was already going. */
+export interface MatchRunStarted extends MatchRunStatus {
+  started: boolean;
+}
+
+/**
+ * One suggested posting, with enough attached for the row to offer its buttons.
+ *
+ * `variant` is the tailored resume for this job: null means none has been written,
+ * and `guardPassed: false` means one was written and thrown away for claiming
+ * something the candidate's resume does not support. Those two are deliberately
+ * distinguishable - "not tried" and "refused" would otherwise look the same.
+ */
+export interface MatchSuggestion {
+  jobId: string;
+  title: string;
+  company: string;
+  companyTier: string;
+  location: string | null;
+  applyUrl: string;
+  remoteType: string;
+  postedAt: string | null;
+  score: number;
+  verdict: string;
+  reasons: string[];
+  missingSkills: string[];
+  /** A string for the same reason as JobRow.salaryMin - an exact decimal. */
+  estimatedSalaryLPA: string | null;
+  decision: MatchDecision;
+  scoredAt: string;
+  variant: {
+    id: string;
+    guardPassed: boolean;
+    hasPdf: boolean;
+    createdAt: string;
+  } | null;
+  application: { id: string; status: string } | null;
 }
 
 export interface Integrations {

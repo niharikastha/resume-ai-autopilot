@@ -34,6 +34,44 @@ export function relativeTime(iso: string | null | undefined): string {
   });
 }
 
+/**
+ * A YYYY-MM-DD calendar day as a person would say it: "Thursday 10 September".
+ *
+ * Built from the three numbers rather than handed to `new Date(day)`, which reads the
+ * string as UTC midnight and then prints it in the local zone - so in India every
+ * digest would be labelled with the day before it covers.
+ */
+const WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+export function dayLabel(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  if (!y || !m || !d) return day;
+  const local = new Date(y, m - 1, d);
+  return `${WEEKDAYS[local.getDay()]} ${d} ${MONTHS[m - 1]}`;
+}
+
 export const TIER_LABEL: Record<string, string> = {
   T1_GLOBAL_INDIA_OFFICE: 'T1 · Global, India office',
   T2_FUNDED_INDIAN_STARTUP: 'T2 · Funded Indian startup',
