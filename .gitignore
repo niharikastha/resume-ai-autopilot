@@ -21,11 +21,16 @@ next-env.d.ts
 /artifacts/
 /backend/prisma/generated/
 
-# Tailored resumes (phase 5, RESUME_OUTPUT_DIR). NOT anchored to the repo root,
-# because the default is relative to the process cwd and the cli/worker run from
-# backend/ - an anchored rule would miss backend/.artifacts entirely. Every file
-# in here carries the candidate's real name, phone number and email.
+# Scratch. NOT anchored to the repo root, because the paths that land here are
+# relative to the process cwd and the cli/worker run from backend/ - an anchored
+# rule would miss backend/.artifacts entirely.
 .artifacts/
+
+# Tailored resumes (phase 5, RESUME_OUTPUT_DIR, default backend/generated-resumes).
+# Every file in here carries the candidate's real name, phone number and email.
+# Unanchored for the same reason as .artifacts. The name is not `resumes/` on
+# purpose: unanchored, that would also ignore frontend/src/app/app/resumes/.
+generated-resumes/
 
 # Uploaded resumes (RESUME_UPLOAD_DIR, default backend/uploads). The candidate's
 # own file, whole - name, phone number, address, employers. Unanchored for the same
@@ -36,7 +41,13 @@ uploads/
 
 # Playwright's persistent browser profile for the submit session (phase 6).
 # Contains live login cookies for job sites - must never be committed.
-/.browser-profile/
+#
+# UNANCHORED, for the same reason as .artifacts above, and this rule was wrong until it
+# was: the path is relative to the process cwd and the cli runs from backend/, so the
+# profile lands at backend/.browser-profile and an anchored `/.browser-profile/` matched
+# nothing at all. 202 files of Cookies, Login Data and Web Data sat untracked but not
+# ignored, one `git add -A` from a commit.
+.browser-profile/
 
 # Spike scripts kept for reference; their output data is disposable.
 /spike/*.json
