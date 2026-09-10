@@ -351,6 +351,26 @@ export interface JobRow {
   matchScores: { score: number; verdict: string }[];
 }
 
+/**
+ * One employer on the jobs page, before it is expanded.
+ *
+ * `openPostings` counts only postings still open, so the number on a closed row and the
+ * number of postings inside it when opened are the same number.
+ *
+ * `bestScore` is null rather than 0 when nothing here has been scored yet. A real 0
+ * would read as "checked and hopeless"; null means "not looked at".
+ */
+export interface JobCompanyGroup {
+  id: string;
+  name: string;
+  tier: string;
+  atsType: string;
+  isAgency: boolean;
+  openPostings: number;
+  scoredForYou: number;
+  bestScore: number | null;
+}
+
 export interface CompanyRow {
   id: string;
   name: string;

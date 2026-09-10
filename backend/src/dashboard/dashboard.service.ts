@@ -380,12 +380,15 @@ export class DashboardService {
     q?: string;
     source?: string;
     tier?: string;
+    /** One employer's postings only. What the company list expands into. */
+    companyId?: string;
     limit: number;
     offset: number;
   }) {
     const where: Prisma.JobPostingWhereInput = { closedAt: null };
     if (params.q) where.title = { contains: params.q, mode: 'insensitive' };
     if (params.source) where.source = params.source;
+    if (params.companyId) where.companyId = params.companyId;
     if (params.tier) {
       where.company = { tier: params.tier as never };
     }
@@ -422,6 +425,134 @@ export class DashboardService {
     ]);
 
     return { total, items };
+  }
+
+  /**
+   * The employers, each with a count of what is open there and how it scored for you.
+   *
+   * WHY THIS EXISTS AS A SEPARATE CALL. There are 16,500 open postings across 142
+   * companies, and the largest single employer accounts for 900 of them. A flat list
+   * paged 50 at a time means the first three pages are one company, which is a browsing
+   * experience with no shape - you cannot tell whether you have seen a company yet. The
+   * employer is the unit a person actually thinks in, so it is the unit the list is built
+   * from, and the postings load only when a company is opened.
+   *
+   * `openPostings` counts OPEN ones. Prisma's `_count` counts every posting ever seen
+   * including the ones the employer has taken down, and it cannot be filtered inside an
+   * orderBy - which is why this is raw SQL rather than a findMany. Measured on the real
+   * data: Databricks has 1240 postings of which 870 are open, Veeva has 900 of which all
+   * 900 are open, so "most openings first" put 870 above 900 and the list visibly
+   * contradicted its own numbers.
+   *
+   * SORTING AND PAGING HAPPEN IN THE SAME PLACE, for the same reason. Sorting by best
+   * score in JS would only have reordered the fifty rows the database had already picked,
+   * so a company on page 3 with a 90 would never reach page 1 - a sort control that
+   * quietly means "sort what you can already see".
+   *
+   * THE SCORES ARE THE VIEWER'S OWN. The join carries `m."userId" = viewerId`, so the
+   * best-match figure is per-candidate and one candidate cannot be shown another's.
+   * Interpolated through Prisma.sql, which parameterises rather than concatenates.
+   */
+  async companyGroups(params: {
+    viewerId: string;
+    /** Matches the company NAME here, not a job title. */
+    q?: string;
+    tier?: string;
+    sort: 'postings' | 'name' | 'score';
+    limit: number;
+    offset: number;
+  }) {
+    // `tier` reaches SQL as a value compared against a cast, never as an identifier - the
+    // zod schema caps its length but does not check it is a real enum member, and an
+    // unknown one must come back as "no companies" rather than a 500.
+    const filters = [
+      params.q ? Prisma.sql`AND c.name ILIKE ${`%${params.q}%`}` : Prisma.empty,
+      params.tier
+        ? Prisma.sql`AND c.tier::text = ${params.tier}`
+        : Prisma.empty,
+    ];
+
+    // The INNER JOIN on open postings is what excludes employers with nothing left open -
+    // there is no row worth expanding - and it also guarantees every count below is at
+    // least 1. Kept apart from the WHERE because the row query has a second join to slot
+    // in between them.
+    const from = Prisma.sql`
+      FROM companies c
+      JOIN job_postings j ON j."companyId" = c.id AND j."closedAt" IS NULL
+    `;
+    const where = Prisma.sql`WHERE TRUE ${Prisma.join(filters, ' ')}`;
+
+    // COUNT(DISTINCT j.id), not COUNT(j.id): the left join below multiplies each posting
+    // by however many score rows it has, and a plain count would inflate the openings
+    // figure for exactly the companies that have been scored the most.
+    const openings = Prisma.sql`COUNT(DISTINCT j.id)`;
+
+    // The name is the last tiebreak on every sort, for the same reason the id is in
+    // `jobs`: offset paging over a non-deterministic order repeats rows on one page and
+    // skips them on the next, and these counts tie constantly - dozens of companies have
+    // exactly one opening.
+    const order =
+      params.sort === 'name'
+        ? Prisma.sql`c.name ASC`
+        : params.sort === 'score'
+          ? // NULLS LAST, or every company nobody has scored would outrank the good
+            // matches: Postgres sorts NULLs first on DESC.
+            Prisma.sql`MAX(m.score) DESC NULLS LAST, ${openings} DESC, c.name ASC`
+          : Prisma.sql`${openings} DESC, c.name ASC`;
+
+    const [totals, rows] = await Promise.all([
+      this.prisma.$queryRaw<{ total: bigint }[]>`
+        SELECT COUNT(DISTINCT c.id) AS total ${from} ${where}
+      `,
+      this.prisma.$queryRaw<
+        {
+          id: string;
+          name: string;
+          tier: string;
+          atsType: string;
+          isAgency: boolean;
+          openPostings: bigint;
+          scoredForYou: bigint;
+          bestScore: number | null;
+        }[]
+      >`
+        SELECT
+          c.id,
+          c.name,
+          c.tier::text              AS "tier",
+          c."atsType"::text         AS "atsType",
+          c."isAgency",
+          ${openings}               AS "openPostings",
+          COUNT(DISTINCT m."jobId") AS "scoredForYou",
+          MAX(m.score)              AS "bestScore"
+        ${from}
+        LEFT JOIN match_scores m
+          ON m."jobId" = j.id AND m."userId" = ${params.viewerId}
+        ${where}
+        GROUP BY c.id, c.name, c.tier, c."atsType", c."isAgency"
+        ORDER BY ${order}
+        LIMIT ${params.limit} OFFSET ${params.offset}
+      `,
+    ]);
+
+    return {
+      total: Number(totals[0]?.total ?? 0),
+      // COUNT returns bigint over the wire and JSON.stringify throws on one, so these are
+      // narrowed here rather than at the controller.
+      items: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        tier: row.tier,
+        atsType: row.atsType,
+        isAgency: row.isAgency,
+        openPostings: Number(row.openPostings),
+        scoredForYou: Number(row.scoredForYou),
+        /** Null, not 0, when nothing here has been scored - a real 0 would read as
+         *  "checked and hopeless" rather than "not looked at yet". MAX over no rows is
+         *  already NULL, so this needs no special case. */
+        bestScore: row.bestScore,
+      })),
+    };
   }
 
   async companies(limit: number) {

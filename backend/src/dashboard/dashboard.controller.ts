@@ -18,6 +18,20 @@ const jobsQuery = z.object({
   q: z.string().trim().min(1).max(120).optional(),
   source: z.string().trim().max(40).optional(),
   tier: z.string().trim().max(40).optional(),
+  /** Set when a company row on the jobs page is expanded. */
+  companyId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const companyGroupsQuery = z.object({
+  /** Matches a company NAME. The postings query's `q` matches a job title, and the
+   *  two are deliberately not the same parameter - typing "engineer" into the company
+   *  search finding nothing is correct, and would be baffling if it silently searched
+   *  titles instead. */
+  q: z.string().trim().min(1).max(120).optional(),
+  tier: z.string().trim().max(40).optional(),
+  sort: z.enum(['postings', 'name', 'score']).default('postings'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -140,6 +154,21 @@ export class MeController {
   jobs(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     return this.dashboard.jobs({
       ...parse(jobsQuery, query),
+      viewerId: user.id,
+    });
+  }
+
+  /**
+   * The employers, each with a count of what is open there.
+   *
+   * The jobs page is a list of these, and expanding one calls `jobs` above with its
+   * companyId. Two calls rather than one nested response, so opening the biggest
+   * employer fetches its 900 postings only when somebody asks for them.
+   */
+  @Get('jobs/companies')
+  jobCompanies(@CurrentUser() user: SessionUser, @Query() query: unknown) {
+    return this.dashboard.companyGroups({
+      ...parse(companyGroupsQuery, query),
       viewerId: user.id,
     });
   }
