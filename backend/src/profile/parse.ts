@@ -34,6 +34,34 @@ import { IN_LOCATION } from '../discovery/normalize';
 import { metricsIn } from './numbers';
 import { splitTechList, techIn } from './tech';
 
+/**
+ * The parts of a piece a resume rarely states and this parser never guesses.
+ *
+ * ALWAYS EMPTY COMING OUT OF `parseResume`, and that is not a gap to be closed
+ * later. A pdf line reading "B.Tech, Computer Science, 8.6" could be split into a
+ * degree, a subject and a CGPA out of ten by a regex that is right about this
+ * resume and wrong about the next one, and a wrong CGPA is a false claim on a real
+ * application. So these are only ever filled in by a person typing into the upload
+ * form, where being unsure means leaving the box empty.
+ *
+ * They travel with the atom rather than replacing anything: `text` is still the
+ * line that prints and still the words that get embedded. These are what that line
+ * was assembled from, kept so the form can show the same boxes again.
+ */
+export interface AtomDetails {
+  /** A project's repository, live site or write-up. */
+  link?: string | null;
+  /** What a role paid, as typed. Never printed on a resume - see schema.prisma. */
+  ctc?: string | null;
+  /** "B.Tech", "MBA", or whatever was typed under "Other". */
+  degree?: string | null;
+  fieldOfStudy?: string | null;
+  /** The figure as typed, e.g. "8.6" or "82.4". A string, so 8.6 stays 8.6. */
+  score?: string | null;
+  /** What the figure is out of. "100" means it is a percentage. */
+  scoreOutOf?: string | null;
+}
+
 /** One atom, before it has an id or an embedding. */
 export interface ParsedAtom {
   kind: AtomKind;
@@ -44,6 +72,8 @@ export interface ParsedAtom {
   /** The employer, or for a project section, the project's name. */
   employer?: string;
   dateRange?: string;
+  /** Typed in by hand, never read out of the file. See AtomDetails. */
+  details?: AtomDetails;
 }
 
 /** Everything read out of one resume file. */
@@ -441,7 +471,12 @@ function nextContent(lines: Line[], from: number): Line | undefined {
 function atom(
   kind: AtomKind,
   text: string,
-  extra: { tech?: string[]; employer?: string; dateRange?: string } = {},
+  extra: {
+    tech?: string[];
+    employer?: string;
+    dateRange?: string;
+    details?: AtomDetails;
+  } = {},
 ): ParsedAtom {
   return {
     kind,
@@ -460,6 +495,7 @@ function atom(
     metrics: kind === AtomKind.ROLE ? [] : metricsIn(text),
     employer: extra.employer,
     dateRange: extra.dateRange,
+    details: extra.details,
   };
 }
 
@@ -483,11 +519,15 @@ export function retagAtom(input: {
   tech?: string[];
   employer?: string;
   dateRange?: string;
+  /** Carried through untouched. Nothing here is derived from the text, so nothing
+   *  here goes stale when the text is edited. */
+  details?: AtomDetails;
 }): ParsedAtom {
   return atom(input.kind, input.text, {
     tech: input.tech,
     employer: input.employer,
     dateRange: input.dateRange,
+    details: input.details,
   });
 }
 

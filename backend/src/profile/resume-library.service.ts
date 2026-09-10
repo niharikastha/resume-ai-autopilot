@@ -96,7 +96,37 @@ export interface AtomInput {
   text: string;
   employer?: string | null;
   dateRange?: string | null;
+  /**
+   * The hand-typed extras: a project's link, what a role paid, and the parts an
+   * education line was assembled from. FLAT here rather than nested, because this
+   * is the shape of a JSON body and one level is easier to validate and to read in
+   * a network tab. `toParsedAtom` groups them.
+   */
+  link?: string | null;
+  ctc?: string | null;
+  degree?: string | null;
+  fieldOfStudy?: string | null;
+  score?: string | null;
+  scoreOutOf?: string | null;
 }
+
+/**
+ * The hand-typed columns, in one place.
+ *
+ * Listed as data rather than repeated in three method bodies because the rule they
+ * share is what matters: each one is written on every save, and a field this list
+ * forgets is a field the next save silently erases.
+ */
+export const DETAIL_FIELDS = [
+  'link',
+  'ctc',
+  'degree',
+  'fieldOfStudy',
+  'score',
+  'scoreOutOf',
+] as const;
+
+export type DetailField = (typeof DETAIL_FIELDS)[number];
 
 export interface UploadResult {
   uploadId: string;
@@ -524,6 +554,16 @@ export class ResumeLibraryService {
         metrics: true,
         employer: true,
         dateRange: true,
+        // The hand-typed extras. Sent so the edit screen shows what was entered
+        // rather than quietly dropping it on the next save - the columns are
+        // rewritten on every reconcile, so a value the form cannot see is a value
+        // the form will erase.
+        link: true,
+        ctc: true,
+        degree: true,
+        fieldOfStudy: true,
+        score: true,
+        scoreOutOf: true,
         ordinal: true,
         // Whether this piece has a vector yet, which is what decides if matching
         // can see it. Surfaced because an atom edited a second ago is briefly
@@ -550,7 +590,7 @@ export class ResumeLibraryService {
       text?: string;
       employer?: string | null;
       dateRange?: string | null;
-    },
+    } & Partial<Record<DetailField, string | null>>,
   ) {
     await this.owned(userId, profileId);
     const current = await this.prisma.profileAtom.findFirst({
@@ -574,11 +614,31 @@ export class ResumeLibraryService {
         ? current.dateRange
         : blankToNull(patch.dateRange);
 
+    // Absent means unchanged, here and only here. A PATCH names the fields it wants
+    // to change, so a body carrying only `text` must leave the CGPA alone - unlike a
+    // confirmation, which sends the whole piece and therefore clears what it omits.
+    const merged = {} as Record<DetailField, string | null>;
+    for (const field of DETAIL_FIELDS) {
+      merged[field] =
+        patch[field] === undefined ? current[field] : blankToNull(patch[field]);
+    }
+
+    // Checked on the MERGED value, not on the patch: clearing "out of 10" while
+    // leaving 8.6 behind would leave a figure nobody can read, and only the two
+    // together say what happened.
+    if (Boolean(merged.score) !== Boolean(merged.scoreOutOf)) {
+      throw new BadRequestException(
+        'a score and what it is out of go together - "8.6" on its own does not say ' +
+          'whether it is out of 10 or a percentage',
+      );
+    }
+
     const retagged = retagAtom({
       kind: current.kind,
       text,
       employer: employer ?? undefined,
       dateRange: dateRange ?? undefined,
+      details: merged,
     });
 
     const updated = await this.prisma.profileAtom.update({
@@ -589,6 +649,7 @@ export class ResumeLibraryService {
         metrics: retagged.metrics,
         employer,
         dateRange,
+        ...merged,
       },
     });
 
@@ -625,6 +686,12 @@ export class ResumeLibraryService {
         metrics: retagged.metrics,
         employer: retagged.employer ?? null,
         dateRange: retagged.dateRange ?? null,
+        link: retagged.details?.link ?? null,
+        ctc: retagged.details?.ctc ?? null,
+        degree: retagged.details?.degree ?? null,
+        fieldOfStudy: retagged.details?.fieldOfStudy ?? null,
+        score: retagged.details?.score ?? null,
+        scoreOutOf: retagged.details?.scoreOutOf ?? null,
         ordinal: (last?.ordinal ?? -1) + 1,
       },
     });
@@ -699,6 +766,14 @@ export class ResumeLibraryService {
       text: input.text.trim(),
       employer: blankToNull(input.employer) ?? undefined,
       dateRange: blankToNull(input.dateRange) ?? undefined,
+      details: {
+        link: blankToNull(input.link),
+        ctc: blankToNull(input.ctc),
+        degree: blankToNull(input.degree),
+        fieldOfStudy: blankToNull(input.fieldOfStudy),
+        score: blankToNull(input.score),
+        scoreOutOf: blankToNull(input.scoreOutOf),
+      },
     });
   }
 }

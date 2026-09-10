@@ -285,6 +285,7 @@ export class ProfileService {
             metrics: atom.metrics,
             employer: atom.employer ?? null,
             dateRange: atom.dateRange ?? null,
+            ...details(atom),
             // embedding and embeddedTextHash deliberately untouched - the text is
             // identical, so the vector is still current.
           },
@@ -302,6 +303,7 @@ export class ProfileService {
           metrics: atom.metrics,
           employer: atom.employer ?? null,
           dateRange: atom.dateRange ?? null,
+          ...details(atom),
           ordinal,
         },
       });
@@ -422,4 +424,36 @@ export class ProfileService {
        WHERE id = ${profileId}
     `;
   }
+}
+
+/**
+ * The hand-typed parts of an atom, as columns.
+ *
+ * Every field is written on every reconcile, INCLUDING as null. An atom arriving
+ * without a link had its link cleared on the form, and skipping the nulls would
+ * make removing a value the one edit this pipeline cannot express. Absent details
+ * therefore clear the columns, which is the same rule `employer` and `dateRange`
+ * already follow one line above.
+ *
+ * A CLI ingest never sets any of them - `parseResume` does not produce them, by
+ * design - so re-ingesting a resume from the command line writes six nulls over six
+ * nulls.
+ */
+function details(atom: ParsedAtom): {
+  link: string | null;
+  ctc: string | null;
+  degree: string | null;
+  fieldOfStudy: string | null;
+  score: string | null;
+  scoreOutOf: string | null;
+} {
+  const d = atom.details;
+  return {
+    link: d?.link ?? null,
+    ctc: d?.ctc ?? null,
+    degree: d?.degree ?? null,
+    fieldOfStudy: d?.fieldOfStudy ?? null,
+    score: d?.score ?? null,
+    scoreOutOf: d?.scoreOutOf ?? null,
+  };
 }

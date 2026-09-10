@@ -427,6 +427,27 @@ export interface ParsedAtom {
   metrics: string[];
   employer?: string | null;
   dateRange?: string | null;
+
+  /**
+   * The parts a person types in and a resume file does not state.
+   *
+   * Never present on a piece that came out of a parse - the server does not guess a
+   * CGPA or a salary from a pdf line, deliberately - so all six are absent until the
+   * upload form asks for them.
+   *
+   * `score` and `scoreOutOf` are STRINGS and are saved together or not at all: 8.6
+   * has to stay 8.6, and a figure with nothing to compare it to cannot be read. 100
+   * means the figure is a percentage.
+   */
+  /** A project's repository, live site or write-up. */
+  link?: string | null;
+  /** What a role paid. Stored for the candidate's own reference and never printed
+   *  on a resume - the figures an application asks for live in the answers form. */
+  ctc?: string | null;
+  degree?: string | null;
+  fieldOfStudy?: string | null;
+  score?: string | null;
+  scoreOutOf?: string | null;
 }
 
 /** A stored piece: a ParsedAtom that has an id and a place in the order. */

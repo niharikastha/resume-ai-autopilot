@@ -92,19 +92,71 @@ const contact = z.object({
   portfolio: optionalText(300),
 });
 
-const atomInput = z.object({
-  kind: z.nativeEnum(AtomKind),
-  // 2000 is well above a real bullet and well below a whole section pasted in by
-  // accident, which is the failure this cap is actually for.
-  text: z.string().trim().min(2).max(2000),
-  employer: optionalText(160),
-  dateRange: optionalText(80),
-  // NOT accepted from the client. Tech tags are re-derived from the text by
-  // `retagAtom`, because the provenance guard uses them as the list of
-  // technologies a rewrite may name - a tag the words do not support would
-  // license the model to claim a skill the resume never mentions. SkillsReserve
-  // is the deliberate, noted way to add one.
-});
+/**
+ * The hand-typed extras every atom may carry. See AtomDetails in parse.ts.
+ *
+ * Every one is optional and every one is a string, including the two numeric-looking
+ * ones. `score` is "8.6" and stays "8.6": a JSON number round-trip is how 8.6
+ * becomes 8.600000000000001, and this figure gets read back and typed into a real
+ * application form. The caps are small on purpose - these are single values, and a
+ * paragraph in the CGPA box is a form being misused rather than a long answer.
+ */
+const detailFields = {
+  link: optionalText(500),
+  ctc: optionalText(40),
+  degree: optionalText(120),
+  fieldOfStudy: optionalText(160),
+  score: optionalText(12),
+  scoreOutOf: optionalText(12),
+};
+
+/**
+ * A score with nothing to compare it to is unreadable.
+ *
+ * "8.6" alone could be out of ten, out of four, or a percentage of a hundred that
+ * somebody typed wrong - and this value ends up in front of an employer. The pair is
+ * therefore all-or-nothing, and it is checked here rather than in the service so the
+ * message names the field the browser can highlight.
+ */
+const scorePair = <
+  T extends { score: string | null; scoreOutOf: string | null },
+>(
+  v: T,
+  ctx: z.RefinementCtx,
+): void => {
+  if (v.score && !v.scoreOutOf) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['scoreOutOf'],
+      message:
+        'say what the score is out of, e.g. 10 for a CGPA or 100 for a percentage',
+    });
+  }
+  if (v.scoreOutOf && !v.score) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['score'],
+      message: 'there is an "out of" here but no score',
+    });
+  }
+};
+
+const atomInput = z
+  .object({
+    kind: z.nativeEnum(AtomKind),
+    // 2000 is well above a real bullet and well below a whole section pasted in by
+    // accident, which is the failure this cap is actually for.
+    text: z.string().trim().min(2).max(2000),
+    employer: optionalText(160),
+    dateRange: optionalText(80),
+    ...detailFields,
+    // NOT accepted from the client. Tech tags are re-derived from the text by
+    // `retagAtom`, because the provenance guard uses them as the list of
+    // technologies a rewrite may name - a tag the words do not support would
+    // license the model to claim a skill the resume never mentions. SkillsReserve
+    // is the deliberate, noted way to add one.
+  })
+  .superRefine(scorePair);
 
 const createBody = z.object({
   label,
@@ -118,13 +170,47 @@ const createBody = z.object({
 
 const renameBody = z.object({ label });
 
+/**
+ * A field in a PATCH, where LEAVING IT OUT AND SENDING IT EMPTY MEAN DIFFERENT
+ * THINGS.
+ *
+ * `optionalText` above turns an absent field into null, which is right for a
+ * confirmation - that body is the whole piece, so anything it omits was deleted.
+ * It is wrong for a patch: the edit screen sends the three boxes it shows and knows
+ * nothing about a CGPA or a project link, so an absent field becoming null would
+ * mean editing the wording of an education line erased the score beside it.
+ *
+ * So this stops one transform earlier. Absent stays undefined and `updateAtom`
+ * keeps the stored value; an explicit "" or null clears it.
+ */
+const patchable = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v.length > 0 ? v : null))
+    .nullable()
+    .optional();
+
 const patchAtomBody = z
   .object({
     text: z.string().trim().min(2).max(2000).optional(),
-    employer: optionalText(160),
-    dateRange: optionalText(80),
+    employer: patchable(160),
+    dateRange: patchable(80),
+    link: patchable(500),
+    ctc: patchable(40),
+    degree: patchable(120),
+    fieldOfStudy: patchable(160),
+    score: patchable(12),
+    scoreOutOf: patchable(12),
   })
-  .refine((v) => Object.keys(v).length > 0, 'nothing to change');
+  // `some(defined)` rather than counting keys: every field above is optional, so a
+  // body of `{}` parses to an object whose keys are all undefined, and counting them
+  // would call that a change and re-embed an atom nobody touched.
+  .refine(
+    (v) => Object.values(v).some((x) => x !== undefined),
+    'nothing to change',
+  );
 
 const addAtomBody = atomInput;
 

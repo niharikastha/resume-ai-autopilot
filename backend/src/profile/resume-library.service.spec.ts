@@ -37,7 +37,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { ResumeLibraryService, type AtomInput } from './resume-library.service';
 import { ProfileIngestError } from './profile.service';
-import type { ParsedProfile } from './parse';
+import type { ParsedAtom, ParsedProfile } from './parse';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER_USER = '22222222-2222-4222-8222-222222222222';
@@ -68,6 +68,14 @@ interface FakeAtom {
   metrics: string[];
   employer: string | null;
   dateRange: string | null;
+  /** The hand-typed columns. Null here, and set by the tests that are about them -
+   *  a patch has to be able to tell "not mentioned" from "cleared". */
+  link: string | null;
+  ctc: string | null;
+  degree: string | null;
+  fieldOfStudy: string | null;
+  score: string | null;
+  scoreOutOf: string | null;
   ordinal: number;
 }
 
@@ -81,6 +89,12 @@ function atom(overrides: Partial<FakeAtom> = {}): FakeAtom {
     metrics: ['65%'],
     employer: 'Merqube',
     dateRange: 'Jan 2024 - Present',
+    link: null,
+    ctc: null,
+    degree: null,
+    fieldOfStudy: null,
+    score: null,
+    scoreOutOf: null,
     ordinal: 3,
     ...overrides,
   };
@@ -245,7 +259,7 @@ class FakeProfiles {
   readonly committed: {
     userId: string;
     label: string;
-    atoms: { text: string; tech: string[] }[];
+    atoms: ParsedAtom[];
   }[] = [];
   readonly embedded: string[] = [];
   previewed: string[] = [];
@@ -467,6 +481,86 @@ describe('create', () => {
     );
     expect(sent[0].tech).not.toContain('Kubernetes');
     expect(sent[0].tech).not.toContain('Kafka');
+  });
+
+  it('carries the hand-typed parts through, and only where they belong', async () => {
+    const { service, profiles } = build({ dir, rows: [saved()] });
+    const uploadId = await uploaded(service);
+
+    await service.create(USER, {
+      label: 'primary',
+      uploadId,
+      contact,
+      atoms: [
+        {
+          kind: AtomKind.ROLE,
+          text: 'Backend Engineer',
+          employer: 'Zomato',
+          dateRange: 'Jan 2024 - Present',
+          ctc: '12.5 LPA',
+          link: 'github.com/priyasharma/walking-pal',
+        },
+        {
+          kind: AtomKind.EDU,
+          text: 'B.Tech in Computer Science — CGPA 8.6/10',
+          employer: 'VSSUT, Burla',
+          dateRange: '2019 – 2023',
+          degree: 'B.Tech',
+          fieldOfStudy: 'Computer Science',
+          score: '8.6',
+          scoreOutOf: '10',
+        },
+      ],
+    });
+
+    const sent = profiles.committed[0].atoms;
+    // A role carries what it paid and a link; it has no degree, and the write must
+    // say so rather than leave the column out - see `details` in profile.service.
+    expect(sent[0].details).toEqual({
+      link: 'github.com/priyasharma/walking-pal',
+      ctc: '12.5 LPA',
+      degree: null,
+      fieldOfStudy: null,
+      score: null,
+      scoreOutOf: null,
+    });
+    expect(sent[1].details).toEqual({
+      link: null,
+      ctc: null,
+      degree: 'B.Tech',
+      fieldOfStudy: 'Computer Science',
+      score: '8.6',
+      scoreOutOf: '10',
+    });
+    // The score stays a string. Parsed as a number, 8.6 is stored as
+    // 8.600000000000001 and read back into a real application form that way.
+    expect(typeof sent[1].details?.score).toBe('string');
+  });
+
+  it('treats a box left blank as no answer', async () => {
+    const { service, profiles } = build({ dir, rows: [saved()] });
+    const uploadId = await uploaded(service);
+
+    await service.create(USER, {
+      label: 'primary',
+      uploadId,
+      contact,
+      atoms: [
+        {
+          kind: AtomKind.ROLE,
+          text: 'Backend Engineer',
+          // Whitespace is what a browser sends for a field somebody typed into and
+          // then cleared. Stored as-is it would be a value that is not one.
+          ctc: '   ',
+          link: '',
+        },
+      ],
+    });
+
+    expect(profiles.committed[0].atoms[0].details).toMatchObject({
+      ctc: null,
+      link: null,
+    });
   });
 
   it('refuses an upload id it did not issue', async () => {
@@ -752,6 +846,89 @@ describe('editing the pieces', () => {
     // The vector is over the text. Re-embedding on a date correction would be a
     // model call, a write and a centroid recompute for no change in meaning.
     expect(profiles.embedded).toEqual([]);
+  });
+
+  it('leaves a part alone when the patch does not mention it', async () => {
+    const { service, prisma } = build({
+      dir,
+      atoms: [
+        atom({
+          kind: AtomKind.EDU,
+          degree: 'B.Tech',
+          fieldOfStudy: 'Computer Science',
+          score: '8.6',
+          scoreOutOf: '10',
+        }),
+      ],
+    });
+
+    // What the edit screen sends: it shows the wording, the institution and the
+    // dates, and knows nothing about a CGPA. If absent meant null, correcting a typo
+    // in the sentence would quietly delete the score beside it.
+    await service.updateAtom(USER, 'profile-1', 'atom-1', {
+      text: 'B.Tech in Computer Science — CGPA 8.6/10',
+    });
+
+    const write = prisma.args['atom.update'][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(write.data.degree).toBe('B.Tech');
+    expect(write.data.fieldOfStudy).toBe('Computer Science');
+    expect(write.data.score).toBe('8.6');
+    expect(write.data.scoreOutOf).toBe('10');
+  });
+
+  it('clears a part that is sent empty', async () => {
+    const { service, prisma } = build({
+      dir,
+      atoms: [atom({ link: 'github.com/priyasharma/walking-pal' })],
+    });
+
+    await service.updateAtom(USER, 'profile-1', 'atom-1', { link: '' });
+
+    const write = prisma.args['atom.update'][0] as {
+      data: Record<string, unknown>;
+    };
+    // Sent and empty is a deletion, and it has to be, or removing a link would be
+    // the one edit this surface cannot express.
+    expect(write.data.link).toBeNull();
+  });
+
+  it('refuses a score with nothing to compare it to', async () => {
+    const bare = build({ dir, atoms: [atom()] });
+    await expect(
+      bare.service.updateAtom(USER, 'profile-1', 'atom-1', { score: '8.6' }),
+    ).rejects.toThrow(BadRequestException);
+
+    // And the other direction: dropping the scale off a stored pair leaves the same
+    // unreadable figure behind, so the check is on the merged result and not on the
+    // patch.
+    const stored = build({
+      dir,
+      atoms: [atom({ score: '8.6', scoreOutOf: '10' })],
+    });
+    await expect(
+      stored.service.updateAtom(USER, 'profile-1', 'atom-1', {
+        scoreOutOf: '',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('keeps a link on a piece added by hand', async () => {
+    const { service, prisma } = build({ dir, atoms: [] });
+
+    await service.addAtom(USER, 'profile-1', {
+      kind: AtomKind.ROLE,
+      text: 'Walking Pal',
+      link: 'github.com/priyasharma/walking-pal',
+      ctc: null,
+    });
+
+    const created = prisma.args['atom.create'][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(created.data.link).toBe('github.com/priyasharma/walking-pal');
+    expect(created.data.ctc).toBeNull();
   });
 
   it('refuses to empty a piece', async () => {

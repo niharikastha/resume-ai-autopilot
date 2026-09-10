@@ -417,6 +417,12 @@ model ProfileAtom {
 
   employer  String?
   dateRange String?
+  link      String?
+  ctc       String?
+  degree       String?
+  fieldOfStudy String?
+  score        String?
+  scoreOutOf   String?
 
   /// Display order within the profile. Explicit because the resume's ordering is
   /// a human decision, and `ORDER BY createdAt` would silently reshuffle a
