@@ -12,6 +12,7 @@ import { GreenhouseConnector } from './greenhouse.connector';
 import { LeverConnector } from './lever.connector';
 import { SmartRecruitersConnector } from './smartrecruiters.connector';
 import { WorkableConnector } from './workable.connector';
+import { WorkdayConnector } from './workday.connector';
 import { Connector } from './types';
 
 export const CONNECTORS: readonly Connector[] = [
@@ -20,6 +21,10 @@ export const CONNECTORS: readonly Connector[] = [
   new AshbyConnector(),
   new SmartRecruitersConnector(),
   new WorkableConnector(),
+  // Last on purpose. The probe walks this list in order and stops at the first hit,
+  // so the cheap single-request sources are asked before the expensive ones - and
+  // Workday is skipped by the probe entirely, since its boards cannot be guessed.
+  new WorkdayConnector(),
 ];
 
 const BY_SOURCE = new Map(CONNECTORS.map((c) => [c.source, c]));

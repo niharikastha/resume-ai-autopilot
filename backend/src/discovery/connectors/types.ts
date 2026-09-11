@@ -63,6 +63,33 @@ export interface Connector {
   listUrl(token: string, offset?: number): string;
 
   /**
+   * The JSON body to POST to `listUrl`, for a board that takes its query that way.
+   *
+   * Absent means GET, which is four of the six sources. Workday is the exception: its
+   * search endpoint carries the offset and the page size in a POST body, so a
+   * connector that could only build a URL could not read a Workday board at all.
+   *
+   * Still PURE - this returns a value, it does not send anything. The client decides
+   * what to do with it.
+   */
+  listBody?(token: string, offset?: number): unknown;
+
+  /**
+   * False when a board cannot be found from a company slug alone.
+   *
+   * Absent or true means the probe may guess: Greenhouse, Lever, Ashby and Workable
+   * all name a board with one lower-case word, so `acme` is a question worth asking.
+   * A Workday board is named by THREE parts - the tenant, the data-centre number and
+   * the site name, `nvidia` + `wd5` + `NVIDIAExternalCareerSite` - and no two of them
+   * are derivable from the company's name. Guessing there is not a long shot, it is
+   * arithmetically hopeless, and the cost of trying would be one wasted request
+   * against a stranger's host for every company in the list on every sweep.
+   *
+   * A board like that is added by pasting its URL instead, which states all three.
+   */
+  readonly guessable?: boolean;
+
+  /**
    * The identifier forms to try when all that is known is a company's slug.
    *
    * Probing guesses `acme` from "Acme Corp" and asks each ATS whether it has a
@@ -78,6 +105,17 @@ export interface Connector {
    * should return the few forms that are actually plausible, not a combinatorial set.
    */
   tokenCandidates?(slug: string): string[];
+
+  /**
+   * The company slug to use when a board URL is all that was pasted.
+   *
+   * Omitted means the token IS the slug once lower-cased, which is true of five of the
+   * six sources - `jobs.lever.co/zeta` names Zeta. A Workday token is three joined
+   * fields, so slugifying it whole gives `nvidia-wd5-nvidiaexternalcareersite` and a
+   * company called "Nvidia Wd5 Nvidiaexternalcareersite". Only the tenant is the
+   * employer's name, and only the connector knows which part that is.
+   */
+  slugFromToken?(token: string): string;
 
   /** Maps a parsed response body to postings. Must tolerate missing fields. */
   parse(body: unknown, token: string): RawPosting[];
@@ -98,12 +136,13 @@ export interface Connector {
    * A second request per posting, for sources whose list response omits the
    * description.
    *
-   * Only SmartRecruiters needs this, and it is worth being explicit about the cost:
-   * one request per POSTING rather than per board turns a 200-role employer into 200
-   * requests, which at the per-host interval is several minutes for one company.
-   * That is affordable for a nightly pass and would not be for anything
-   * interactive. A connector that leaves these undefined is fetched once and parsed,
-   * which is the cheap path the other four take.
+   * SmartRecruiters and Workday need this, and it is worth being explicit about the
+   * cost: one request per POSTING rather than per board turns a 200-role employer into
+   * 200 requests, which at the per-host interval is several minutes for one company -
+   * and Workday tenants run to a couple of thousand roles, so an hour. That is
+   * affordable for a nightly pass and would not be for anything interactive. A
+   * connector that leaves these undefined is fetched once and parsed, which is the
+   * cheap path the other four take.
    */
   detailUrl?(posting: RawPosting, token: string): string;
 

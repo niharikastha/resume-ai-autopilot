@@ -19,6 +19,7 @@ import {
   DEMOTED_BOARD_INTERVAL_DAYS,
   EMPTY_RUNS_BEFORE_DEMOTION,
   FETCH_CONCURRENCY,
+  MAX_BOARD_POSTINGS,
   MAX_PLAUSIBLE_CLOSURE_RATIO,
 } from './discovery.constants';
 import { DiscoveryHttpClient, FetchError } from './http.client';
@@ -201,6 +202,37 @@ export class DiscoveryService {
     });
   }
 
+  /**
+   * Reads one board and returns what is on it, WRITING NOTHING.
+   *
+   * For the add-a-company flow, whose whole point is to show the operator what a board
+   * contains before it becomes rows in the shared table. `runAll({dryRun: true})` fetches
+   * every board to answer a question about one.
+   */
+  async previewBoard(
+    connector: Connector,
+    token: string,
+    options: { skipDetails?: boolean; maxPostings?: number } = {},
+  ): Promise<RawPosting[]> {
+    return this.fetchBoard(connector, token, options);
+  }
+
+  /**
+   * Writes postings that did not come from a connector fetch.
+   *
+   * For the careers-page path, where the listing was read off an HTML page rather than
+   * returned by a board API. Everything after "where did these come from" is identical -
+   * the same validation, the same content hash, the same closure of anything that has
+   * disappeared - so it goes through the same code rather than a second copy of it.
+   */
+  async saveBoard(
+    company: Company,
+    connector: Connector,
+    postings: RawPosting[],
+  ): Promise<{ created: number; updated: number; closed: number }> {
+    return this.persist(company, connector, postings);
+  }
+
   /** Every board for one source, at bounded concurrency. */
   private async runSource(
     connector: Connector,
@@ -265,17 +297,43 @@ export class DiscoveryService {
   private async fetchBoard(
     connector: Connector,
     token: string,
+    /**
+     * `skipDetails` omits the per-posting hydration below, leaving descriptions empty.
+     *
+     * Never set by the nightly pass, and it must not be: a description-less posting is
+     * exactly what this phase exists to stop writing. It is for the interactive
+     * add-a-company preview, where the whole board is being fetched to answer "is this
+     * the right employer" in a few seconds - and where SmartRecruiters' one-request-per
+     * -posting path would take several minutes at the per-host interval.
+     *
+     * `maxPostings` stops paging early, and is also the preview's business. A Workday
+     * board hands back 20 postings per request, so NVIDIA's 2,000 roles are 100
+     * requests - two minutes of somebody else's server, spent to answer a question the
+     * first page already answers. The nightly pass leaves this unset and reads the lot.
+     */
+    options: { skipDetails?: boolean; maxPostings?: number } = {},
   ): Promise<RawPosting[]> {
     const label = `${connector.source}/${token}`;
     const collected: RawPosting[] = [];
 
     const pageSize = connector.pageSize ?? 0;
-    const maxPages = pageSize > 0 ? 50 : 1;
+    // Bounded by POSTINGS rather than by pages, because the page sizes differ by five
+    // times: a flat 50-page cap is 5,000 SmartRecruiters postings and 1,000 Workday
+    // ones, and Workday tenants are the big boards, so the flat cap would silently
+    // stop halfway through exactly the source that needs the most pages.
+    const budget = Math.min(
+      options.maxPostings ?? MAX_BOARD_POSTINGS,
+      MAX_BOARD_POSTINGS,
+    );
+    const maxPages = pageSize > 0 ? Math.ceil(budget / pageSize) : 1;
 
     for (let page = 0; page < maxPages; page++) {
+      const offset = page * pageSize;
       const body = await this.http.fetchJson<unknown>(
-        connector.listUrl(token, page * pageSize),
+        connector.listUrl(token, offset),
         label,
+        // Undefined for every source but Workday, and undefined means GET.
+        connector.listBody?.(token, offset),
       );
       const batch = connector.parse(body, token);
       collected.push(...batch);
@@ -288,9 +346,10 @@ export class DiscoveryService {
       if (total !== null && collected.length >= total) break;
     }
 
+    if (options.skipDetails) return collected;
     if (!connector.detailUrl || !connector.mergeDetail) return collected;
 
-    // The N+1 path, SmartRecruiters only. Sequential on purpose: these all hit one
+    // The N+1 path, SmartRecruiters and Workday. Sequential on purpose: these all hit one
     // host, and the point of the per-host interval is that we do not send a burst
     // to a single operator just because we have several things to ask them.
     const hydrated: RawPosting[] = [];

@@ -197,9 +197,12 @@ export class LlmError extends Error {
  * paper over with a partial parse.
  */
 export class LlmSchemaError extends LlmError {
-  constructor(
-    detail: { task: string; model: string; raw: string; issues: string },
-  ) {
+  constructor(detail: {
+    task: string;
+    model: string;
+    raw: string;
+    issues: string;
+  }) {
     super(
       `${detail.task}: ${detail.model} returned output that does not match the ` +
         `task schema:\n${detail.issues}`,
@@ -225,7 +228,13 @@ export class LlmSchemaError extends LlmError {
 export class LlmBatchPendingError extends LlmError {
   constructor(
     readonly batchId: string,
-    detail: { task: string; model: string; waitedMs: number; done: number; total: number },
+    detail: {
+      task: string;
+      model: string;
+      waitedMs: number;
+      done: number;
+      total: number;
+    },
   ) {
     super(
       `${detail.task}: batch ${batchId} still running after ` +

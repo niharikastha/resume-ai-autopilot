@@ -78,6 +78,56 @@ export function decodeEntities(input: string): string {
   );
 }
 
+/**
+ * Placeholders a template engine leaves behind when the page ships unrendered.
+ *
+ * `{{job.title}}` from Angular, Vue and Handlebars; `${job.title}` from a few others.
+ * Their presence in the TEXT - not in a script body, which `htmlToText` already
+ * removed - means the browser was expected to fill them in, and the server sent the
+ * empty form rather than the filled one.
+ */
+const PLACEHOLDER = /\{\{[^}]{1,120}\}\}|\$\{[^}]{1,120}\}/g;
+
+/**
+ * Does this page's text look like a shell that JavaScript was supposed to fill?
+ *
+ * WHY THIS EXISTS. TCS's iBegin portal answers 200 with 63 KB of HTML that reduces to
+ * 1,800 characters of text - comfortably past any "is the page empty" floor - and every
+ * one of those characters is either legal boilerplate or a literal `{{job.dateApplyBy}}`.
+ * A model reading it correctly reports no openings, and the caller then tells the
+ * operator to check they pasted the job list rather than an "about us" page. They did
+ * paste the job list. The page simply has no jobs in it until a browser runs its code.
+ *
+ * TWO SIGNALS, EITHER IS ENOUGH:
+ *
+ *   1. unfilled placeholders survive into the text. Nothing a human is meant to read
+ *      contains `{{...}}`, so even a couple of them means the template is raw.
+ *   2. the text is a tiny fraction of the HTML that carried it. A real listing page is
+ *      mostly words; a framework shell is mostly markup and script.
+ *
+ * DELIBERATELY CHEAP AND DELIBERATELY BEFORE THE MODEL. This is a pure string test, and
+ * running it first means a page that provably cannot contain openings does not cost an
+ * Opus call to find that out.
+ *
+ * IT CANNOT CATCH EVERY CASE, and must not pretend to: a shell rendered from a JSON blob
+ * in a `<script>` tag leaves no placeholders and plenty of text. A false negative just
+ * means the model reads the page and finds nothing, which is the behaviour without this
+ * function at all. A false POSITIVE would be worse - it would refuse a readable page - so
+ * both thresholds are set well clear of anything a real listing page produces.
+ */
+export function looksUnrendered(text: string, htmlLength: number): boolean {
+  const placeholders = text.match(PLACEHOLDER)?.length ?? 0;
+  // TCS's page leaves ten, so signal 1 is what catches it. Two rather than one, so a page
+  // that genuinely prints a brace pair in prose is not condemned by it.
+  if (placeholders >= 2) return true;
+
+  // TCS measures 3.2% and so is NOT caught here - this second signal is for a shell that
+  // ships no placeholders at all, and 1.5% is set below TCS deliberately: a page with
+  // that little text per byte of markup has no listing in it whatever the reason. The
+  // size floor keeps a genuinely small page out of it, where the ratio means nothing.
+  return htmlLength > 20_000 && text.length / htmlLength < 0.015;
+}
+
 /** Elements after which a line break carries meaning. */
 const BLOCK =
   'p|div|br|tr|h[1-6]|section|article|header|footer|ul|ol|dl|dt|dd|table|blockquote|pre|figure';
@@ -132,6 +182,13 @@ export function htmlToText(html: string): string {
       .replace(/[ \t]*\n[ \t]*/g, '\n')
       // Three or more blank lines add nothing but tokens. Two is a paragraph break.
       .replace(/\n{3,}/g, '\n\n')
+      // A bullet whose text is wrapped in a block element of its own. Workday writes
+      // `<li><p><span>Familiarity with Arista</span></p></li>`, so the <li> emits
+      // "- " and the <p> inside it immediately emits a newline - leaving a lone "-"
+      // on one line and its requirement on the next. EVERY bullet in EVERY Workday
+      // posting reads that way, which detaches each requirement from the mark meant
+      // to group it and undoes the reason list handling exists at all.
+      .replace(/(^|\n)-\n+/g, '$1- ')
       // A list whose items got a break from both <li> and the block rule.
       .replace(/\n+- /g, '\n- ')
       .trim()

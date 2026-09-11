@@ -60,7 +60,12 @@ export interface ScoreJobShared {
   /** Headline, if the resume had one. */
   headline: string | null;
   /** The atoms, verbatim. No rewriting at this stage. */
-  atoms: { kind: string; text: string; tech: string[]; employer?: string | null }[];
+  atoms: {
+    kind: string;
+    text: string;
+    tech: string[];
+    employer?: string | null;
+  }[];
   /** Union of every tech tag on the profile, deduplicated and sorted. */
   tech: string[];
 }

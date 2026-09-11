@@ -156,57 +156,14 @@ export function screen(
     return { pass: false, reason: 'no-description' };
   }
 
-  // Re-normalized rather than trusted: `normalizedTitle` is written by whichever
-  // connector found the posting, and a posting seeded before a normalizeTitle fix
-  // still carries the old value. The two agree in every ordinary case and this costs
-  // one regex.
-  const title = normalizeTitle(posting.title);
-
-  const excluded = firstMatch(title, targets.titles.exclude);
-  if (excluded) {
-    return { pass: false, reason: 'title-excluded', matched: excluded };
-  }
-
-  const included = firstMatch(title, targets.titles.include);
-  if (!included) return { pass: false, reason: 'title-not-included' };
-
-  // A null seniority passes. `seniority()` always returns one of three values, so
-  // null means the row predates that field rather than meaning "unclear", and the
-  // allow list currently contains all three anyway - this rule is here so that
-  // narrowing the list in the YAML takes effect, not because it currently filters.
-  if (
-    posting.seniority &&
-    !(targets.seniority.allow as readonly string[]).includes(posting.seniority)
-  ) {
-    return { pass: false, reason: 'seniority', matched: posting.seniority };
-  }
-
-  // The experience WINDOW, not a comparison against the candidate's years. A
-  // posting that states no requirement always passes - which is most of them - and
-  // stage 3 reads the real requirement out of the description, because "5+ years or
-  // equivalent experience" is not a number a parser should be trusted with.
-  if (posting.yoeMin !== null && posting.yoeMin > targets.experience.maxYears) {
-    return {
-      pass: false,
-      reason: 'experience-window',
-      matched: `requires ${posting.yoeMin}+ years`,
-    };
-  }
-  if (posting.yoeMax !== null && posting.yoeMax < targets.experience.minYears) {
-    return {
-      pass: false,
-      reason: 'experience-window',
-      matched: `caps at ${posting.yoeMax} years`,
-    };
-  }
-
-  const locationVerdict = screenLocation(posting, targets);
-  if (locationVerdict) return locationVerdict;
+  const metadata = screenMetadata(posting, targets);
+  if (!metadata.pass) return metadata;
 
   // The two description scans, last, and over DIFFERENT haystacks. Lower-cased once
   // rather than per rule, because doing it twice over a 20KB body for every posting
   // is the kind of waste that only shows up as a slow nightly run nobody attributes
   // to this.
+  const title = normalizeTitle(posting.title);
   const body = posting.descriptionText.toLowerCase();
 
   // Dealbreakers see the title too: "Sales Engineer (Commission Only)" states its
@@ -252,6 +209,75 @@ export function screen(
 }
 
 /**
+ * The half of stage 1 that needs only a posting's own fields: title, seniority, the
+ * experience window, and where the job is.
+ *
+ * SPLIT OUT BECAUSE TWO OTHER PLACES NEED EXACTLY THIS AND CANNOT HAVE THE REST. The
+ * jobs page counts, per employer, how many openings could be for this candidate - over
+ * sixteen thousand postings, so it runs as SQL and cannot scan a description. The
+ * add-a-company preview marks which of a new board's roles look relevant before anything
+ * is stored, and an in-house careers page often supplies no description to scan.
+ *
+ * Both of those are looser than `screen` by exactly the rules left out here - the two
+ * keyword scans and freshness - so both are supersets of what a match run shortlists.
+ * That direction is the safe one: a page that offers a few too many is a page you look
+ * at, and one that offers too few hides jobs.
+ *
+ * Callers that HAVE a description should still call `screen`. This is not a cheaper
+ * screen, it is a partial one.
+ */
+export function screenMetadata(
+  posting: Omit<ScreenablePosting, 'descriptionText' | 'closedAt' | 'id'>,
+  targets: Targets,
+): Stage1Verdict {
+  // Re-normalized rather than trusted: `normalizedTitle` is written by whichever
+  // connector found the posting, and a posting seeded before a normalizeTitle fix
+  // still carries the old value. The two agree in every ordinary case and this costs
+  // one regex.
+  const title = normalizeTitle(posting.title);
+
+  const excluded = firstMatch(title, targets.titles.exclude);
+  if (excluded) {
+    return { pass: false, reason: 'title-excluded', matched: excluded };
+  }
+
+  const included = firstMatch(title, targets.titles.include);
+  if (!included) return { pass: false, reason: 'title-not-included' };
+
+  // A null seniority passes. `seniority()` always returns one of three values, so
+  // null means the row predates that field rather than meaning "unclear", and the
+  // allow list currently contains all three anyway - this rule is here so that
+  // narrowing the list in the YAML takes effect, not because it currently filters.
+  if (
+    posting.seniority &&
+    !(targets.seniority.allow as readonly string[]).includes(posting.seniority)
+  ) {
+    return { pass: false, reason: 'seniority', matched: posting.seniority };
+  }
+
+  // The experience WINDOW, not a comparison against the candidate's years. A
+  // posting that states no requirement always passes - which is most of them - and
+  // stage 3 reads the real requirement out of the description, because "5+ years or
+  // equivalent experience" is not a number a parser should be trusted with.
+  if (posting.yoeMin !== null && posting.yoeMin > targets.experience.maxYears) {
+    return {
+      pass: false,
+      reason: 'experience-window',
+      matched: `requires ${posting.yoeMin}+ years`,
+    };
+  }
+  if (posting.yoeMax !== null && posting.yoeMax < targets.experience.minYears) {
+    return {
+      pass: false,
+      reason: 'experience-window',
+      matched: `caps at ${posting.yoeMax} years`,
+    };
+  }
+
+  return screenLocation(posting, targets) ?? { pass: true };
+}
+
+/**
  * Location and remote eligibility.
  *
  * Split out because it is the rule with the most branches and the one whose failure
@@ -262,7 +288,7 @@ export function screen(
  * rejections rather than as a boolean whose polarity has to be remembered.
  */
 function screenLocation(
-  posting: ScreenablePosting,
+  posting: Pick<ScreenablePosting, 'location' | 'remoteType'>,
   targets: Targets,
 ): Stage1Verdict | undefined {
   // PLAN-v2's change to 1c, and the measurement behind it: the spike found 509
@@ -353,9 +379,56 @@ function screenLocation(
  * built only from these specifies no place; a string with anything left over does.
  * Filler and punctuation are stripped separately, so entries are only the terms that
  * carry the meaning.
+ *
+ * EXPORTED AS A LIST, not just as the regex, because the jobs page needs the same
+ * subtraction inside SQL to count how many of a company's openings are addressable.
+ * One list rendered into two dialects; two hand-maintained copies of a vocabulary this
+ * long would drift on the first addition and the symptom would be a count that
+ * disagrees with the screen it claims to predict.
  */
-const PLACELESS =
-  /\b(remote|remotely|hybrid|onsite|on-site|global|globally|worldwide|world|wide|anywhere|any|all|various|multiple|locations?|location|distributed|virtual|telecommute|telework|wfh|work|from|home|based|office|flexible|fully|friendly|optional|travel|required|position|role|job|posting|only|other|various)\b/g;
+export const PLACELESS_WORDS = [
+  'remote',
+  'remotely',
+  'hybrid',
+  'onsite',
+  'on-site',
+  'global',
+  'globally',
+  'worldwide',
+  'world',
+  'wide',
+  'anywhere',
+  'any',
+  'all',
+  'various',
+  'multiple',
+  'locations?',
+  'location',
+  'distributed',
+  'virtual',
+  'telecommute',
+  'telework',
+  'wfh',
+  'work',
+  'from',
+  'home',
+  'based',
+  'office',
+  'flexible',
+  'fully',
+  'friendly',
+  'optional',
+  'travel',
+  'required',
+  'position',
+  'role',
+  'job',
+  'posting',
+  'only',
+  'other',
+] as const;
+
+const PLACELESS = new RegExp(`\\b(${PLACELESS_WORDS.join('|')})\\b`, 'g');
 
 /**
  * Whether a location string names somewhere, as opposed to saying "remote".

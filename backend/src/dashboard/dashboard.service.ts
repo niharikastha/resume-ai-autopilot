@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ApplicationStatus, Prisma } from '@prisma/client';
+import { loadTargets } from '../config/targets';
+import { suitsCandidateSql } from '../matching/relevance.sql';
 import { PrismaService } from '../prisma/prisma.service';
 import { missingRequiredAnswers, toStatedAnswers } from '../submission/answers';
 
@@ -18,6 +20,32 @@ const NON_ENGINEERING =
   '(sales|marketing|recruit|talent|people|finance|account|legal|counsel|designer|product manager|program manager|customer success|support|partner|business development|content|intern|internship)';
 const TOO_SENIOR =
   '(staff|principal|director|head of|chief|distinguished|fellow|manager)';
+
+/**
+ * Which postings a jobs-page query is about.
+ *
+ * One shape for the posting list and the company list, so a filter added to the page
+ * cannot end up applied to one of them and not the other - which would show a count that
+ * expands into a different set of rows.
+ */
+export interface JobScope {
+  /** Never optional. The attached match score must be the viewer's own. */
+  viewerId: string;
+  /** A job TITLE. The company list ignores this and matches names instead. */
+  q?: string;
+  source?: string;
+  tier?: string;
+  /** One employer. What a company row expands into. */
+  companyId?: string;
+  /** The company filter, from the picker at the top of the page. */
+  companyIds?: string[];
+  /**
+   * `suits` applies the targets.yaml screen - engineering roles this candidate could
+   * take, in a place they can work. `all` is every open posting, for the "show
+   * everything" switch.
+   */
+  only: 'suits' | 'all';
+}
 
 export interface FunnelStage {
   key: string;
@@ -375,56 +403,106 @@ export class DashboardService {
    * another candidate's score and reasons. Requiring the parameter means that
    * leak cannot be reintroduced by forgetting a filter at a call site.
    */
-  async jobs(params: {
-    viewerId: string;
-    q?: string;
-    source?: string;
-    tier?: string;
-    /** One employer's postings only. What the company list expands into. */
-    companyId?: string;
-    limit: number;
-    offset: number;
-  }) {
-    const where: Prisma.JobPostingWhereInput = { closedAt: null };
-    if (params.q) where.title = { contains: params.q, mode: 'insensitive' };
-    if (params.source) where.source = params.source;
-    if (params.companyId) where.companyId = params.companyId;
-    if (params.tier) {
-      where.company = { tier: params.tier as never };
-    }
+  async jobs(params: JobScope & { limit: number; offset: number }) {
+    const scope = Prisma.sql`
+      FROM job_postings j
+      LEFT JOIN companies c ON c.id = j."companyId"
+      WHERE ${this.postingWhere(params)}
+    `;
 
-    const [total, items] = await Promise.all([
-      this.prisma.jobPosting.count({ where }),
-      this.prisma.jobPosting.findMany({
-        where,
-        include: {
-          company: { select: { name: true, tier: true, atsType: true } },
-          matchScores: {
-            where: { userId: params.viewerId },
-            orderBy: { scoredAt: 'desc' },
-            take: 1,
-          },
-        },
-        // nulls: 'last' is load-bearing. Postgres sorts NULLs FIRST on DESC, so
-        // the default would rank every posting whose date we could not parse
-        // ABOVE a genuinely fresh one. Most boards omit a post date, so that is
-        // the common case, not the edge case.
-        //
-        // The trailing id is the tiebreak. postedAt and firstSeenAt both tie in
-        // bulk - a connector run writes its whole batch on one timestamp - and
-        // offset pagination over a non-deterministic order silently repeats
-        // rows on one page and skips them on the next.
-        orderBy: [
-          { postedAt: { sort: 'desc', nulls: 'last' } },
-          { firstSeenAt: 'desc' },
-          { id: 'desc' },
-        ],
-        take: params.limit,
-        skip: params.offset,
-      }),
+    // Chosen in SQL and hydrated by Prisma, in that order and for one reason: the
+    // "suits me" rule is a regex over term lists from targets.yaml, and Prisma's where
+    // has no way to express a word boundary. Doing the whole thing in raw SQL instead
+    // would mean hand-writing the company and match-score joins and rebuilding the
+    // nested shape this returns, which is the shape the jobs page reads.
+    //
+    // Only `limit` ids come back, so the `IN` list is at most 200 wide however large
+    // the table gets.
+    const [totals, chosen] = await Promise.all([
+      this.prisma.$queryRaw<{ total: bigint }[]>`
+        SELECT COUNT(*) AS total ${scope}
+      `,
+      this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT j.id ${scope}
+        -- NULLS LAST is load-bearing. Postgres sorts NULLs FIRST on DESC, so the
+        -- default would rank every posting whose date we could not parse ABOVE a
+        -- genuinely fresh one. Most boards omit a post date, so that is the common
+        -- case, not the edge case.
+        --
+        -- The trailing id is the tiebreak. postedAt and firstSeenAt both tie in bulk -
+        -- a connector run writes its whole batch on one timestamp - and offset paging
+        -- over a non-deterministic order silently repeats rows on one page and skips
+        -- them on the next.
+        ORDER BY j."postedAt" DESC NULLS LAST, j."firstSeenAt" DESC, j.id DESC
+        LIMIT ${params.limit} OFFSET ${params.offset}
+      `,
     ]);
 
-    return { total, items };
+    const order = chosen.map((row) => row.id);
+    const rows =
+      order.length === 0
+        ? []
+        : await this.prisma.jobPosting.findMany({
+            where: { id: { in: order } },
+            include: {
+              company: { select: { name: true, tier: true, atsType: true } },
+              matchScores: {
+                where: { userId: params.viewerId },
+                orderBy: { scoredAt: 'desc' },
+                take: 1,
+              },
+            },
+          });
+
+    // Re-ordered to match the ids, because `IN` imposes no order and the page would
+    // otherwise be sorted by whatever the planner found convenient.
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const items = order
+      .map((id) => byId.get(id))
+      .filter((row): row is (typeof rows)[number] => row !== undefined);
+
+    return { total: Number(totals[0]?.total ?? 0), items };
+  }
+
+  /**
+   * Which postings are in scope, as a WHERE body over `j` (job_postings) and `c`
+   * (companies).
+   *
+   * SHARED BY THE POSTING LIST AND THE COMPANY LIST, which is the whole point. A company
+   * row reading "12 openings for you" that expands into a list built from a different
+   * WHERE is the bug this prevents, and it is a bug only findable by counting rows by
+   * hand. Returned as the WHERE body rather than a whole FROM..WHERE because the company
+   * query has a second join to slot in between them.
+   */
+  private postingWhere(params: JobScope): Prisma.Sql {
+    const ids = params.companyIds?.length
+      ? params.companyIds
+      : params.companyId
+        ? [params.companyId]
+        : [];
+
+    const filters = [
+      params.q
+        ? Prisma.sql`AND j.title ILIKE ${`%${params.q}%`}`
+        : Prisma.empty,
+      params.source
+        ? Prisma.sql`AND j.source = ${params.source}`
+        : Prisma.empty,
+      ids.length > 0
+        ? Prisma.sql`AND j."companyId" IN (${Prisma.join(ids)})`
+        : Prisma.empty,
+      params.tier
+        ? Prisma.sql`AND c.tier::text = ${params.tier}`
+        : Prisma.empty,
+      // The default. A page whose counts mean "engineering roles you could take in
+      // India" is the page somebody asked for; "every posting on the board" is the
+      // escape hatch, not the resting state.
+      params.only === 'all'
+        ? Prisma.empty
+        : Prisma.sql`AND (${suitsCandidateSql(loadTargets())})`,
+    ];
+
+    return Prisma.sql`j."closedAt" IS NULL ${Prisma.join(filters, ' ')}`;
   }
 
   /**
@@ -452,35 +530,40 @@ export class DashboardService {
    * THE SCORES ARE THE VIEWER'S OWN. The join carries `m."userId" = viewerId`, so the
    * best-match figure is per-candidate and one candidate cannot be shown another's.
    * Interpolated through Prisma.sql, which parameterises rather than concatenates.
+   *
+   * WHAT `openPostings` COUNTS depends on `only`, and both readings are honest. Under the
+   * default it is the openings that suit this candidate, which is what makes the number
+   * worth reading: OpenAI's board carries 780 open roles and the reader can apply for a
+   * handful of them, so a row promising 780 sends them scrolling through marketing jobs in
+   * Tokyo. Under `all` it is every open posting. The expanded list uses the same rule
+   * either way, which is the property that matters - the count and the list it opens into
+   * can never disagree.
    */
   async companyGroups(params: {
     viewerId: string;
     /** Matches the company NAME here, not a job title. */
     q?: string;
     tier?: string;
+    /** The company filter: show only these employers. Empty means all of them. */
+    companyIds?: string[];
+    only: 'suits' | 'all';
     sort: 'postings' | 'name' | 'score';
     limit: number;
     offset: number;
   }) {
-    // `tier` reaches SQL as a value compared against a cast, never as an identifier - the
-    // zod schema caps its length but does not check it is a real enum member, and an
-    // unknown one must come back as "no companies" rather than a 500.
-    const filters = [
-      params.q ? Prisma.sql`AND c.name ILIKE ${`%${params.q}%`}` : Prisma.empty,
-      params.tier
-        ? Prisma.sql`AND c.tier::text = ${params.tier}`
-        : Prisma.empty,
-    ];
-
-    // The INNER JOIN on open postings is what excludes employers with nothing left open -
-    // there is no row worth expanding - and it also guarantees every count below is at
-    // least 1. Kept apart from the WHERE because the row query has a second join to slot
-    // in between them.
+    // The INNER JOIN is what excludes employers with nothing in scope - there is no row
+    // worth expanding - and it also guarantees every count below is at least 1. Kept apart
+    // from the WHERE because the row query has a second join to slot in between them.
     const from = Prisma.sql`
       FROM companies c
-      JOIN job_postings j ON j."companyId" = c.id AND j."closedAt" IS NULL
+      JOIN job_postings j ON j."companyId" = c.id
     `;
-    const where = Prisma.sql`WHERE TRUE ${Prisma.join(filters, ' ')}`;
+    // `q` is the one filter this does NOT hand to the shared scope: here it means a
+    // company name, and there it means a job title.
+    const where = Prisma.sql`
+      WHERE ${this.postingWhere({ ...params, q: undefined })}
+      ${params.q ? Prisma.sql`AND c.name ILIKE ${`%${params.q}%`}` : Prisma.empty}
+    `;
 
     // COUNT(DISTINCT j.id), not COUNT(j.id): the left join below multiplies each posting
     // by however many score rows it has, and a plain count would inflate the openings
@@ -553,6 +636,26 @@ export class DashboardService {
         bestScore: row.bestScore,
       })),
     };
+  }
+
+  /**
+   * Every employer with something open, by name. What the company filter is a list of.
+   *
+   * Not `companyGroups` with a big limit: the picker needs all 142 names at once so it can
+   * be searched in the browser without a request per keystroke, and it needs none of the
+   * counts or scores that make that query expensive. Two fields per row is small enough to
+   * fetch once and keep.
+   *
+   * DELIBERATELY NOT NARROWED BY `only`. A picker whose contents change when the "show
+   * everything" switch is flipped would remove the company you had just selected, and the
+   * selection would silently stop meaning anything.
+   */
+  async companyNames(): Promise<{ id: string; name: string }[]> {
+    return this.prisma.company.findMany({
+      where: { postings: { some: { closedAt: null } } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async companies(limit: number) {

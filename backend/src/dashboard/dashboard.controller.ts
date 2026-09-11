@@ -14,12 +14,41 @@ import { CurrentUser, Roles, type SessionUser } from '../auth/auth.constants';
 import { AuthService } from '../auth/auth.service';
 import { DashboardService } from './dashboard.service';
 
+/**
+ * The company filter, as `?companyIds=a,b,c`.
+ *
+ * Comma-separated rather than a repeated key, because a repeated key arrives as a string
+ * when there is one value and an array when there are several, and every consumer then has
+ * to remember that. Each id is still validated as a uuid - the list goes into an `IN`
+ * through Prisma.sql, so this is defence in depth rather than the only guard.
+ *
+ * The 60 cap is the point where the filter has stopped narrowing anything: there are 142
+ * employers, and a selection that large is a longer URL to express "all of them".
+ */
+const companyIds = z
+  .string()
+  .max(2500)
+  .transform((raw) => raw.split(',').map((id) => id.trim()))
+  .pipe(z.array(z.string().uuid()).max(60))
+  .optional();
+
+/**
+ * Whether a jobs-page query means "roles that suit me" or "every posting".
+ *
+ * Defaulting to `suits` is the decision the page is built on. A count of every open
+ * posting on an employer's board is a number about the employer, not about the reader -
+ * OpenAI's 780 openings are mostly sales and marketing roles outside India.
+ */
+const only = z.enum(['suits', 'all']).default('suits');
+
 const jobsQuery = z.object({
   q: z.string().trim().min(1).max(120).optional(),
   source: z.string().trim().max(40).optional(),
   tier: z.string().trim().max(40).optional(),
   /** Set when a company row on the jobs page is expanded. */
   companyId: z.string().uuid().optional(),
+  companyIds,
+  only,
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -31,6 +60,8 @@ const companyGroupsQuery = z.object({
    *  titles instead. */
   q: z.string().trim().min(1).max(120).optional(),
   tier: z.string().trim().max(40).optional(),
+  companyIds,
+  only,
   sort: z.enum(['postings', 'name', 'score']).default('postings'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
@@ -171,6 +202,17 @@ export class MeController {
       ...parse(companyGroupsQuery, query),
       viewerId: user.id,
     });
+  }
+
+  /**
+   * Every employer name, for the company filter's list.
+   *
+   * Above `jobs/companies` in usefulness-per-byte and unrelated to it: no counts, no
+   * scores, no paging, so the filter can hold all 142 names and search them locally.
+   */
+  @Get('jobs/company-names')
+  jobCompanyNames() {
+    return this.dashboard.companyNames();
   }
 
   @Get('applications')

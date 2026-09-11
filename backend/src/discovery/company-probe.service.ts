@@ -93,6 +93,13 @@ export class CompanyProbeService {
       if (!slug) continue;
 
       for (const connector of CONNECTORS) {
+        // A board whose name cannot be derived from a slug is not probed at all.
+        // Workday needs a tenant, a data-centre number and a case-sensitive site
+        // name, so there is nothing to guess from "acme" - and asking anyway would
+        // spend one request per company per sweep on a stranger's host to be told
+        // 404 every time. Those boards arrive by pasting their URL instead.
+        if (connector.guessable === false) continue;
+
         if (!options.recheck) {
           const seen = await this.prisma.companyProbe.findUnique({
             where: {
@@ -142,10 +149,14 @@ export class CompanyProbeService {
    * is not an optimisation: no sequence of slug guesses finds that board, so without
    * a way to state it outright the 543 India postings on it are unreachable.
    *
-   * Returns false when the named ATS has no connector, which is the WORKDAY and
-   * CUSTOM case. Those are real boards this system deliberately cannot fetch (PLAN-v2
-   * phase 6 drops Workday), so creating a Company row for one would put a board into
-   * the daily pass that nothing knows how to read.
+   * It is also the ONLY way a Workday board gets in, since the probe skips it: a
+   * Workday token names three things at once - `nvidia:wd5:NVIDIAExternalCareerSite` -
+   * and that identity comes from a pasted URL, never from a guess.
+   *
+   * Returns false when the named ATS has no connector, which is now only the CUSTOM
+   * and UNKNOWN case. Those are real boards this system cannot fetch, so creating a
+   * Company row for one would put a board into the daily pass that nothing knows how
+   * to read.
    */
   async adoptKnownBoard(input: {
     slug: string;
@@ -162,12 +173,7 @@ export class CompanyProbeService {
       return false;
     }
 
-    await this.ensureCompany(
-      input.slug,
-      connector,
-      input.token,
-      input.facts,
-    );
+    await this.ensureCompany(input.slug, connector, input.token, input.facts);
     return true;
   }
 
@@ -219,6 +225,7 @@ export class CompanyProbeService {
       const body = await this.http.fetchJson<unknown>(
         connector.listUrl(token, 0),
         `probe ${connector.source}/${token}`,
+        connector.listBody?.(token, 0),
       );
 
       // The body test. A 200 has been received; whether a board exists is a separate

@@ -787,18 +787,7 @@ export class ClaudeProvider implements LlmProvider {
       model: this.modelFor(task.tier),
       max_tokens: task.maxTokens,
 
-      // Two blocks with ONE breakpoint at the end of the second. The instruction is
-      // a constant and the prefix is constant across a run, so a single breakpoint
-      // covering both is all that is needed; a second breakpoint between them would
-      // spend one of the four available on a boundary nothing varies across.
-      system: [
-        { type: 'text', text: task.instruction },
-        {
-          type: 'text',
-          text: task.prefix(shared),
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
+      system: systemBlocks(task.instruction, task.prefix(shared)),
 
       messages: [{ role: 'user', content: task.question(input) }],
 
@@ -947,6 +936,34 @@ export function jsonSchemaOf(
   const { $schema, ...jsonSchema } = z.toJSONSchema(schema);
   void $schema;
   return jsonSchema as Anthropic.Messages.Tool.InputSchema;
+}
+
+/**
+ * The system blocks, with the cache breakpoint on the last one that has any text.
+ *
+ * ONE breakpoint, at the end. The instruction is a constant and the prefix is constant
+ * across a run, so a single breakpoint covering both is all that is needed; a second one
+ * between them would spend one of the four available on a boundary nothing varies across.
+ *
+ * AN EMPTY BLOCK IS DROPPED RATHER THAN SENT. A task whose shared context has nothing to
+ * state returns '' from `prefix()`, and the API rejects `cache_control` on an empty text
+ * block outright - "system.1: cache_control cannot be set for empty text blocks" - which
+ * fails the whole call with a 400 that reads like a model-access problem. `read-careers-
+ * page` was exactly that task. Fixing it here rather than in the task keeps it a property
+ * of this file: no task can break its own request by having nothing to say up front.
+ */
+export function systemBlocks(
+  instruction: string,
+  prefix: string,
+): Anthropic.Messages.TextBlockParam[] {
+  const texts = [instruction, prefix].filter((text) => text.trim().length > 0);
+  return texts.map((text, index) => ({
+    type: 'text' as const,
+    text,
+    ...(index === texts.length - 1
+      ? { cache_control: { type: 'ephemeral' as const } }
+      : {}),
+  }));
 }
 
 /** The refusal category, or null when the model did not refuse. */

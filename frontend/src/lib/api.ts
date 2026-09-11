@@ -371,6 +371,60 @@ export interface JobCompanyGroup {
   bestScore: number | null;
 }
 
+/**
+ * One entry in the company filter's list.
+ *
+ * Deliberately two fields. The filter holds every employer at once so the list can be
+ * searched without a round trip per keystroke, and a count or a score per row would make
+ * that payload grow for information the filter does not show.
+ */
+export interface CompanyName {
+  id: string;
+  name: string;
+}
+
+/** One posting in an add-a-company scan, before anything has been saved. */
+export interface ScannedPosting {
+  title: string;
+  location: string | null;
+  applyUrl: string;
+  remoteType: string;
+  /** Whether the jobs page would count it under "roles that suit me". */
+  suits: boolean;
+}
+
+/**
+ * What the server found at a pasted URL. NOTHING HAS BEEN SAVED at this point.
+ *
+ * `scanId` is the only thing the save request sends back. The postings are held on the
+ * server, so the browser cannot alter what gets written.
+ */
+export interface CompanyScan {
+  scanId: string;
+  url: string;
+  name: string;
+  slug: string;
+  atsType: string;
+  source: string;
+  token: string | null;
+  via: 'ats' | 'careers-page';
+  existing: { id: string; name: string; slug: string } | null;
+  postings: ScannedPosting[];
+  suitable: number;
+  writesPostingsNow: boolean;
+  notes: string[];
+}
+
+export interface CompanyAdded {
+  companyId: string;
+  name: string;
+  slug: string;
+  created: number;
+  updated: number;
+  closed: number;
+  notes: string[];
+}
+
 export interface CompanyRow {
   id: string;
   name: string;

@@ -143,13 +143,58 @@ export class DiscoveryHttpClient {
   }
 
   /**
-   * GETs a JSON document, with retries.
+   * Fetches a JSON document, with retries.
    *
    * Returns the parsed body. Throws FetchError on a status the caller should record
    * - the caller's job is to note the board as failed and carry on to the next one,
    * never to abandon the pass.
+   *
+   * `send` MAKES IT A POST, and Workday is why. Its list endpoint takes the page
+   * offset in a JSON body rather than a query string, so a GET-only client cannot
+   * read a Workday board at all. Retrying a POST is normally the thing you must not
+   * do - but the only POST this client ever sends is a SEARCH QUERY, which changes
+   * nothing on the far side, so the retry policy is left exactly as it is for GET.
+   * If a genuinely mutating request ever belongs here, it does not: this module reads
+   * public job boards and nothing else.
    */
-  async fetchJson<T>(url: string, label: string): Promise<T> {
+  async fetchJson<T>(url: string, label: string, send?: unknown): Promise<T> {
+    const body = await this.fetchBody(url, label, 'application/json', send);
+    try {
+      return JSON.parse(body) as T;
+    } catch {
+      // A board that answers 200 with HTML is usually a marketing page where an API
+      // used to be. Recorded as a failure with a snippet, because the snippet is what
+      // tells you whether the endpoint moved or the tenant is gone.
+      throw new FetchError(
+        `expected JSON, got ${body.slice(0, 80).replace(/\s+/g, ' ')}`,
+        null,
+      );
+    }
+  }
+
+  /**
+   * GETs a document as text - an employer's own careers page, for the case where no
+   * ATS answers and the page itself is the only source.
+   *
+   * Same interval, same retries, same size cap as `fetchJson`, and the same refusal
+   * without a contact address. The only difference is that nothing is parsed: what
+   * comes back is markup for `htmlToText`, not an API response with a shape.
+   */
+  async fetchText(url: string, label: string): Promise<string> {
+    return this.fetchBody(
+      url,
+      label,
+      'text/html,application/xhtml+xml,text/plain',
+    );
+  }
+
+  /** The retry loop both public fetchers share. */
+  private async fetchBody(
+    url: string,
+    label: string,
+    accept: string,
+    send?: unknown,
+  ): Promise<string> {
     if (!this.isConfigured()) {
       // Fails CLOSED, and this is the guarantee the plan actually asks for: no
       // request leaves this process without a contact address on it.
@@ -175,7 +220,7 @@ export class DiscoveryHttpClient {
       await this.takeHostSlot(host);
 
       try {
-        return await this.attempt<T>(url);
+        return await this.attempt(url, accept, send);
       } catch (err) {
         const error =
           err instanceof FetchError
@@ -206,15 +251,22 @@ export class DiscoveryHttpClient {
     throw lastError ?? new FetchError(`${label}: failed`, null);
   }
 
-  /** One attempt, with the timeout and the size cap. */
-  private async attempt<T>(url: string): Promise<T> {
+  /** One attempt, with the timeout and the size cap. Returns the raw body. */
+  private async attempt(
+    url: string,
+    accept: string,
+    send?: unknown,
+  ): Promise<string> {
     const response = await fetch(url, {
+      method: send === undefined ? 'GET' : 'POST',
       headers: {
         'User-Agent': this.userAgent(),
-        Accept: 'application/json',
+        Accept: accept,
         // No cookie jar, no referer, no invented Sec-* headers. We are a script and
         // the request should look like one.
+        ...(send === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
+      ...(send === undefined ? {} : { body: JSON.stringify(send) }),
       redirect: 'follow',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -228,19 +280,7 @@ export class DiscoveryHttpClient {
       throw error;
     }
 
-    const body = await readCapped(response);
-
-    try {
-      return JSON.parse(body) as T;
-    } catch {
-      // A board that answers 200 with HTML is usually a marketing page where an
-      // API used to be. Recorded as a failure with a snippet, because the snippet
-      // is what tells you whether the endpoint moved or the tenant is gone.
-      throw new FetchError(
-        `expected JSON, got ${body.slice(0, 80).replace(/\s+/g, ' ')}`,
-        response.status,
-      );
-    }
+    return readCapped(response);
   }
 }
 

@@ -66,6 +66,21 @@ export const MAX_RETRY_AFTER_MS = 60_000;
 export const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 /**
+ * Postings read from one board in one pass, at most.
+ *
+ * A stop, not a target. The pagination loop already ends on a short page and on the
+ * board's declared total, so this only fires when a board reports a total it never
+ * reaches or hands back the same page forever - and an endless loop that makes a
+ * request each time round is the worst kind of bug to leave possible.
+ *
+ * 5,000 is above every board measured: the largest Workday tenant read so far
+ * declares 2,000. Expressed in postings rather than pages because the page sizes
+ * differ five-fold between sources, so a page cap would mean a different limit per
+ * source for no reason anybody could remember.
+ */
+export const MAX_BOARD_POSTINGS = 5_000;
+
+/**
  * Consecutive empty runs before a board drops to the weekly cadence.
  *
  * Matches the `yieldStats` note on the Company model: the point is that the board
