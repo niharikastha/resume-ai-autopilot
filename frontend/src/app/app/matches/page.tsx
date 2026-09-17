@@ -19,14 +19,13 @@ import {
   Check,
   ExternalLink,
   FileWarning,
-  Filter,
   Search,
   Sparkles,
   Undo2,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shell';
 import { useToast } from '@/components/toast';
 import {
@@ -34,6 +33,7 @@ import {
   Button,
   Card,
   CardHeader,
+  controlClass,
   EmptyState,
   ErrorNote,
   SkeletonCard,
@@ -45,7 +45,7 @@ import {
   type MatchRunStatus,
   type MatchSuggestion,
 } from '@/lib/api';
-import { relativeTime } from '@/lib/utils';
+import { num, relativeTime } from '@/lib/utils';
 
 /**
  * How often to ask whether the run has finished, in milliseconds.
@@ -69,15 +69,121 @@ const VERDICT_TONE: Record<string, 'good' | 'accent' | 'warning' | 'neutral'> = 
  *
  * 50 rather than 0 because the funnel deliberately keeps its rejections - they are what
  * makes a too-tight filter visible - but a first-time reader opening this page does not
- * want 174 refusals above the eleven things they could actually apply for. The toggle
- * says how many are hidden, so nothing is concealed.
+ * want 174 refusals above the eleven things they could actually apply for. The fit filter
+ * says how many are hidden and reaches them in one click, so nothing is concealed.
  */
 const DEFAULT_MIN_SCORE = 50;
+
+/**
+ * How many rows one fetch of this list can hold - the server's own ceiling.
+ *
+ * It matters on screen because the server fills that ceiling BY SCORE. So when the list
+ * comes back full, "newest first" means the newest of the 200 best fits and not the
+ * newest of everything scored, and the card says so rather than letting the order imply
+ * something it cannot deliver.
+ */
+const PAGE_CAP = 200;
+
+/**
+ * The orders the list can be read in.
+ *
+ * Each label names the direction as well as the field. "Posted date" on its own leaves
+ * you to guess whether the top row is this morning's posting or last year's, and the
+ * wrong guess is invisible - every row looks plausible either way.
+ */
+const SORTS = [
+  { value: 'fit', label: 'Best fit first' },
+  { value: 'posted', label: 'Newest posting first' },
+  { value: 'scored', label: 'Most recently scored first' },
+  { value: 'pay', label: 'Highest pay first' },
+  { value: 'title', label: 'Job title (A–Z)' },
+  { value: 'company', label: 'Company (A–Z)' },
+] as const;
+
+type Sort = (typeof SORTS)[number]['value'];
+
+/**
+ * The fit thresholds offered, as scores rather than as verdict names.
+ *
+ * The verdict is a band of the score (a STRONG is simply a high one), so filtering on
+ * both would be two controls fighting over one number.
+ */
+const FITS: { value: number; label: string }[] = [
+  { value: 0, label: 'Any fit, including the rejects' },
+  { value: DEFAULT_MIN_SCORE, label: 'Fit 50 and up' },
+  { value: 70, label: 'Fit 70 and up' },
+  { value: 85, label: 'Fit 85 and up' },
+];
+
+/** Filtering on your own yes/no, which is a different question from the AI's score. */
+const DECISIONS: { value: 'all' | MatchDecision; label: string }[] = [
+  { value: 'all', label: 'Whatever I said' },
+  { value: 'UNDECIDED', label: 'Not decided yet' },
+  { value: 'WANTED', label: 'The ones I said yes to' },
+  { value: 'NOT_WANTED', label: 'The ones I turned down' },
+];
+
+/** Newest first, with "no date recorded" at the end rather than at the top. */
+function byNewest(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return Date.parse(b) - Date.parse(a);
+}
+
+/** Highest first, with "not stated" at the end. Salary arrives as a decimal string. */
+function byPay(a: string | null, b: string | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return Number(b) - Number(a);
+}
+
+/** Best fit first, and the server's own tie-break after it. */
+function byFit(a: MatchSuggestion, b: MatchSuggestion): number {
+  return b.score - a.score || byNewest(a.scoredAt, b.scoredAt);
+}
+
+/**
+ * The list in the chosen order.
+ *
+ * Every order falls back to fit, so rows that tie on the chosen field - two postings from
+ * the same company, a dozen with no pay stated - still arrive best-first instead of in
+ * whatever order the database happened to return them.
+ */
+function sortRows(rows: MatchSuggestion[], sort: Sort): MatchSuggestion[] {
+  // A copy. React Query hands back the cached array itself, and sorting in place would
+  // reorder the cache underneath anything else reading this query.
+  const out = [...rows];
+
+  switch (sort) {
+    case 'posted':
+      return out.sort((a, b) => byNewest(a.postedAt, b.postedAt) || byFit(a, b));
+    case 'scored':
+      return out.sort((a, b) => byNewest(a.scoredAt, b.scoredAt) || byFit(a, b));
+    case 'pay':
+      return out.sort(
+        (a, b) =>
+          byPay(a.estimatedSalaryLPA, b.estimatedSalaryLPA) || byFit(a, b),
+      );
+    case 'title':
+      return out.sort((a, b) => a.title.localeCompare(b.title) || byFit(a, b));
+    case 'company':
+      return out.sort((a, b) => a.company.localeCompare(b.company) || byFit(a, b));
+    default:
+      return out.sort(byFit);
+  }
+}
 
 export default function MatchesPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [showAll, setShowAll] = useState(false);
+
+  /** What is being shown, and in what order. Held here; the list is filtered in memory. */
+  const [q, setQ] = useState('');
+  const [minFit, setMinFit] = useState(DEFAULT_MIN_SCORE);
+  const [decided, setDecided] = useState<'all' | MatchDecision>('all');
+  const [sort, setSort] = useState<Sort>('fit');
 
   const status = useQuery({
     queryKey: ['me', 'matches', 'run'],
@@ -90,7 +196,8 @@ export default function MatchesPage() {
 
   const suggestions = useQuery({
     queryKey: ['me', 'matches'],
-    queryFn: () => api.get<MatchSuggestion[]>('/api/me/matches?limit=200'),
+    queryFn: () =>
+      api.get<MatchSuggestion[]>(`/api/me/matches?limit=${PAGE_CAP}`),
   });
 
   const busy = status.data?.state === 'queued' || status.data?.state === 'running';
@@ -132,9 +239,41 @@ export default function MatchesPage() {
     }
   }, [finishedAt, queryClient]);
 
-  const all = suggestions.data ?? [];
-  const shown = showAll ? all : all.filter((row) => row.score >= DEFAULT_MIN_SCORE);
+  // Memoised only so the empty fallback is not a brand new array on every render, which
+  // would defeat the filter below it.
+  const all = useMemo(() => suggestions.data ?? [], [suggestions.data]);
+
+  /**
+   * Filtered and sorted here rather than by the server.
+   *
+   * The whole page is already in memory - the fetch above asks for the server's maximum -
+   * so re-ordering it is instant, and a request per keystroke to re-sort rows the browser
+   * is already holding would only make the page slower to use.
+   */
+  const needle = q.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      sortRows(
+        all.filter(
+          (row) =>
+            row.score >= minFit &&
+            (decided === 'all' || row.decision === decided) &&
+            (needle === '' ||
+              row.title.toLowerCase().includes(needle) ||
+              row.company.toLowerCase().includes(needle)),
+        ),
+        sort,
+      ),
+    [all, minFit, decided, needle, sort],
+  );
+
   const hidden = all.length - shown.length;
+  const filtered = needle !== '' || minFit !== DEFAULT_MIN_SCORE || decided !== 'all';
+  const clear = () => {
+    setQ('');
+    setMinFit(DEFAULT_MIN_SCORE);
+    setDecided('all');
+  };
 
   return (
     <>
@@ -171,20 +310,30 @@ export default function MatchesPage() {
               }
               subtitle="Say no to anything you would not take. It stops a resume being written and a form being opened for it."
               action={
-                hidden > 0 || showAll ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={Filter}
-                    onClick={() => setShowAll((v) => !v)}
-                  >
-                    {showAll
-                      ? 'Hide the poor fits'
-                      : `Show ${hidden} poor fit${hidden === 1 ? '' : 's'}`}
-                  </Button>
+                hidden > 0 ? (
+                  <span className="figure text-xs text-[var(--ink-muted)]">
+                    {num(hidden)}{' '}
+                    <span className="font-sans">not shown by these filters</span>
+                  </span>
                 ) : undefined
               }
             />
+
+            {all.length > 0 && (
+              <Controls
+                q={q}
+                onQ={setQ}
+                minFit={minFit}
+                onMinFit={setMinFit}
+                decided={decided}
+                onDecided={setDecided}
+                sort={sort}
+                onSort={setSort}
+                filtered={filtered}
+                onClear={clear}
+                capped={all.length >= PAGE_CAP}
+              />
+            )}
 
             {shown.length === 0 ? (
               <EmptyState
@@ -192,12 +341,16 @@ export default function MatchesPage() {
                 title={
                   all.length === 0
                     ? 'No search has been run yet'
-                    : 'Nothing scored above 50'
+                    : filtered
+                      ? 'Nothing here matches those filters'
+                      : `Nothing scored above ${DEFAULT_MIN_SCORE}`
                 }
                 detail={
                   all.length === 0
                     ? 'Press "Find my matches". It reads the postings already collected for you, so it costs a few pence and takes a couple of minutes.'
-                    : 'Everything found was a poor fit. Show them anyway to see why each one was turned down.'
+                    : filtered
+                      ? `${num(all.length)} scored posting${all.length === 1 ? '' : 's'} exist${all.length === 1 ? 's' : ''} — widen the fit, or clear the search.`
+                      : 'Everything found was a poor fit. Set the fit filter to “any” to see why each one was turned down.'
                 }
                 action={
                   all.length === 0 ? (
@@ -209,7 +362,15 @@ export default function MatchesPage() {
                     >
                       Find my matches
                     </Button>
-                  ) : undefined
+                  ) : filtered ? (
+                    <Button icon={X} onClick={clear}>
+                      Clear the filters
+                    </Button>
+                  ) : (
+                    <Button onClick={() => setMinFit(0)}>
+                      Show every score
+                    </Button>
+                  )
                 }
               />
             ) : (
@@ -232,6 +393,115 @@ export default function MatchesPage() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * The row of filters and the sort.
+ *
+ * INSIDE the card and above the rows, not in the page header. It describes this one list,
+ * and a control that changes a list should sit against it - the header belongs to "Find my
+ * matches", which changes what exists rather than what is shown.
+ */
+function Controls({
+  q,
+  onQ,
+  minFit,
+  onMinFit,
+  decided,
+  onDecided,
+  sort,
+  onSort,
+  filtered,
+  onClear,
+  capped,
+}: {
+  q: string;
+  onQ: (value: string) => void;
+  minFit: number;
+  onMinFit: (value: number) => void;
+  decided: 'all' | MatchDecision;
+  onDecided: (value: 'all' | MatchDecision) => void;
+  sort: Sort;
+  onSort: (value: Sort) => void;
+  filtered: boolean;
+  onClear: () => void;
+  capped: boolean;
+}) {
+  return (
+    <div className="border-b border-[var(--border)] px-5 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search
+            size={14}
+            aria-hidden
+            className="absolute top-1/2 left-3 -translate-y-1/2 text-[var(--ink-muted)]"
+          />
+          <input
+            value={q}
+            onChange={(event) => onQ(event.target.value)}
+            placeholder="Job title or company…"
+            aria-label="Search these matches by job title or company"
+            className={`${controlClass} w-52 pl-8`}
+          />
+        </div>
+
+        <select
+          value={sort}
+          onChange={(event) => onSort(event.target.value as Sort)}
+          aria-label="Order these matches by"
+          className={controlClass}
+        >
+          {SORTS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={minFit}
+          onChange={(event) => onMinFit(Number(event.target.value))}
+          aria-label="Lowest fit score to show"
+          className={controlClass}
+        >
+          {FITS.map((fit) => (
+            <option key={fit.value} value={fit.value}>
+              {fit.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={decided}
+          onChange={(event) =>
+            onDecided(event.target.value as 'all' | MatchDecision)
+          }
+          aria-label="Filter by what you decided"
+          className={controlClass}
+        >
+          {DECISIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        {filtered && (
+          <Button size="sm" variant="ghost" icon={X} onClick={onClear}>
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {capped && sort !== 'fit' && (
+        <p className="mt-2 text-xs text-[var(--ink-muted)]">
+          This page holds the {PAGE_CAP} best-scoring postings, so this order rearranges
+          those {PAGE_CAP} rather than everything ever scored. Run a search to bring the
+          newest postings into it.
+        </p>
+      )}
+    </div>
   );
 }
 
