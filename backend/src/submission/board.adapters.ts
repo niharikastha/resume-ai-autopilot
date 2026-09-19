@@ -36,6 +36,8 @@ import { runPrefill, type PrefillOptions } from './prefill.engine';
 /** Shared shape: a host test, a name table, and the engine. */
 abstract class BoardAdapter implements AtsAdapter {
   abstract readonly atsType: AtsType;
+  /** Every board adapter fills its forms. That is what makes it one. */
+  readonly automated = true;
   protected abstract readonly hosts: RegExp;
   protected abstract readonly names: NameMap;
 
@@ -176,6 +178,9 @@ export class WorkableAdapter extends BoardAdapter {
 export class WorkdayAdapter implements AtsAdapter {
   readonly atsType = AtsType.WORKDAY;
 
+  /** The only false one, and the reason the flag exists. */
+  readonly automated = false;
+
   canHandle(url: string): boolean {
     const host = hostOf(url);
     return (
@@ -211,6 +216,10 @@ export class WorkdayAdapter implements AtsAdapter {
  */
 export class GenericAdapter implements AtsAdapter {
   readonly atsType = AtsType.CUSTOM;
+
+  /** It tries, and a form arriving half filled is still a form to check rather than a
+   *  form to type. "Automated" here is a promise to attempt, not to finish. */
+  readonly automated = true;
 
   constructor(private readonly resolve: PrefillOptions['resolve']) {}
 
@@ -257,6 +266,30 @@ export function boardAdapters(): AtsAdapter[] {
     new WorkableAdapter(),
     new WorkdayAdapter(),
   ];
+}
+
+/**
+ * Will this link be filled in for you, or do you fill it yourself?
+ *
+ * WHY A FUNCTION RATHER THAN THE REGISTRY. The registry is a Nest provider and its
+ * fallback is the generic adapter, which needs an LLM to construct. A list of postings
+ * needs this answer for two hundred rows and has no business acquiring an LLM client to
+ * get it, so this asks the board adapters directly - the same objects, the same host
+ * tests, no dependency.
+ *
+ * NOTHING CLAIMING THE URL MEANS THE GENERIC FILLER, which does attempt the form. So an
+ * unrecognised host is `false`: it is a form this will try, not one it refuses. Being
+ * wrong in that direction is the safe way round - a row promising less than it delivers
+ * costs a pleasant surprise, whereas a row promising a filled form and opening an empty
+ * one is exactly the complaint this is here to answer.
+ *
+ * TAKEN FROM `automated` AND NOT FROM A LIST OF HOSTS HERE, so an adapter that starts
+ * or stops filling forms changes this by changing itself. A second copy of that
+ * decision is a second thing to update and the wrong one is invisible on screen.
+ */
+export function appliedByHand(url: string): boolean {
+  const adapter = boardAdapters().find((one) => one.canHandle(url));
+  return adapter ? !adapter.automated : false;
 }
 
 /**

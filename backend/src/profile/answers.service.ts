@@ -20,8 +20,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { classify } from '../submission/field-policy';
 import {
   missingRequiredAnswers,
+  normalizeQuestion,
   toStatedAnswers,
   type StatedAnswers,
 } from '../submission/answers';
@@ -45,6 +47,51 @@ export interface AnswersInput {
   customAnswers: CustomAnswer[];
 }
 
+/**
+ * A question a real form asked that nothing here could answer.
+ *
+ * WHY THIS IS ON THE ANSWERS SCREEN. The library only works if it has the questions in
+ * it, and until now the candidate had to guess what those were - type a question from
+ * memory, word it the way the board words it, and hope it comes up again. The forms
+ * already said: every prepared application records the label of every field it left
+ * blank. So the screen offers those back, and answering one is a click plus a sentence.
+ */
+export interface AskedQuestion {
+  /** As the form wrote it, so a stored answer matches the next time it is asked. */
+  question: string;
+  /** How many prepared applications asked it. The reason to answer this one first. */
+  timesAsked: number;
+  lastAskedAt: string | null;
+  /** True when at least one of those forms would not send without it. */
+  required: boolean;
+}
+
+/**
+ * The questions Indian application forms ask over and over, as starters.
+ *
+ * QUESTIONS ONLY, AND NEVER AN ANSWER. Every one of these is a fact about the candidate
+ * that this system has no business inventing - "willing to work from office" answered
+ * "yes" on someone's behalf is a commitment they did not make. They are here because a
+ * library with nothing in it is a feature nobody discovers, and because recognising the
+ * question is the part a person cannot be expected to do from memory.
+ *
+ * The four that already have their own box above - authorisation, notice, both CTCs -
+ * are deliberately absent. A question offered twice in two mechanisms is two places to
+ * answer it and one of them silently losing.
+ */
+const COMMON_QUESTIONS: readonly string[] = [
+  'How did you hear about us?',
+  'Total years of professional experience',
+  'Current employer',
+  'Highest qualification',
+  'Year of graduation',
+  'Are you willing to work from the office?',
+  'Do you have a valid passport?',
+  'Are you currently serving your notice period?',
+  'Do you have any other offers in hand?',
+  'Why do you want to work here?',
+];
+
 export interface AnswersView {
   answers: {
     workAuthorization: string | null;
@@ -66,6 +113,12 @@ export interface AnswersView {
    * marks exactly what the dashboard's blocker is complaining about.
    */
   missing: string[];
+  /** Questions this candidate's own forms asked and nothing could answer, commonest
+   *  first. Empty until an application has been prepared. */
+  asked: AskedQuestion[];
+  /** Starters, for a library with nothing in it yet. Ones already stored or already
+   *  asked by a real form are left out - see COMMON_QUESTIONS. */
+  suggested: string[];
 }
 
 @Injectable()
@@ -75,11 +128,75 @@ export class AnswersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async view(userId: string): Promise<AnswersView> {
-    const row = await this.prisma.applicationAnswers.findUnique({
+    const [row, asked] = await Promise.all([
+      this.prisma.applicationAnswers.findUnique({ where: { userId } }),
+      this.askedQuestions(userId),
+    ]);
+
+    return viewOf(row, toStatedAnswers(row), asked);
+  }
+
+  /**
+   * Every question this candidate's prepared applications left unanswered.
+   *
+   * READ BACK OUT OF THE AUDIT JSON, which is where the form filler already writes one
+   * entry per field. Nothing new is stored for this, and nothing here is a second
+   * opinion about what happened - it is the same record the run log printed.
+   *
+   * WHAT IS EXCLUDED, AND WHY EACH ONE WOULD BE WRONG TO OFFER:
+   *
+   *   a key was found       That question belongs to one of the boxes above. Offering
+   *                         "Expected CTC" as a library entry too gives the candidate
+   *                         two places to answer it, and the form filler reads the
+   *                         column first - so the library copy would look answered and
+   *                         do nothing.
+   *   demographic           Not a gap. Blank is the intended, permanent answer.
+   *   consent               A box to tick at the keyboard, not a sentence to store.
+   *   (unlabelled)          Not a question, just a field whose label could not be read.
+   *                         Storing an answer against that string would match nothing.
+   *   already answered      It is in the library. `normalizeQuestion` decides, the same
+   *                         way the filler decides at fill time - see viewOf.
+   */
+  private async askedQuestions(userId: string): Promise<AskedQuestion[]> {
+    const rows = await this.prisma.application.findMany({
       where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: APPLICATIONS_READ,
+      select: { screeningAnswers: true, updatedAt: true },
     });
 
-    return viewOf(row, toStatedAnswers(row));
+    /** Keyed on the NORMALIZED question, so one question asked three ways is one row. */
+    const byQuestion = new Map<string, AskedQuestion>();
+
+    for (const row of rows) {
+      const when = preparedAt(row.screeningAnswers) ?? row.updatedAt.toISOString();
+
+      for (const field of unansweredFields(row.screeningAnswers)) {
+        const key = normalizeQuestion(field.question);
+        const seen = byQuestion.get(key);
+        if (!seen) {
+          byQuestion.set(key, {
+            question: field.question,
+            timesAsked: 1,
+            lastAskedAt: when,
+            required: field.required,
+          });
+          continue;
+        }
+        seen.timesAsked += 1;
+        seen.required = seen.required || field.required;
+        // Rows arrive newest-first, so the first date seen is the latest one.
+        seen.lastAskedAt = seen.lastAskedAt ?? when;
+      }
+    }
+
+    return [...byQuestion.values()]
+      .sort(
+        (a, b) =>
+          b.timesAsked - a.timesAsked ||
+          (b.lastAskedAt ?? '').localeCompare(a.lastAskedAt ?? ''),
+      )
+      .slice(0, ASKED_MAX);
   }
 
   /**
@@ -108,6 +225,7 @@ export class AnswersService {
     });
 
     const stated = toStatedAnswers(row);
+    const asked = await this.askedQuestions(userId);
     // Deliberately NOT logging the values. A log line is the one place these end up
     // somewhere the candidate cannot see or delete, and "current CTC" in a log file
     // is a salary disclosed to whoever reads the server's output.
@@ -116,15 +234,102 @@ export class AnswersService {
         `${Object.keys(stated.customAnswers).length} saved question(s)`,
     );
 
-    return viewOf(row, stated);
+    return viewOf(row, stated, asked);
   }
 }
+
+/** How many of this candidate's applications the question list is read out of. */
+const APPLICATIONS_READ = 100;
+
+/** How many unanswered questions the screen is offered at once. */
+const ASKED_MAX = 20;
+
+/**
+ * The unanswerable-but-answerable questions in one application's audit record.
+ *
+ * WRITTEN BY A DIFFERENT PROCESS AND PARSED DEFENSIVELY. It is a Json column, so what
+ * comes back is whatever was put in - including records written before `fieldClass`
+ * existed on a field. Those are classified from their label here instead, by the same
+ * function that classified them then.
+ */
+function unansweredFields(
+  value: Prisma.JsonValue | null,
+): { question: string; required: boolean }[] {
+  const fields = asRecord(value)?.fields;
+  if (!Array.isArray(fields)) return [];
+
+  const out: { question: string; required: boolean }[] = [];
+  for (const entry of fields) {
+    const field = asRecord(entry);
+    if (!field) continue;
+
+    const outcome = field.outcome;
+    if (outcome !== 'blank' && outcome !== 'skipped') continue;
+    // A key means one of the boxes above owns this question.
+    if (field.key !== null && field.key !== undefined) continue;
+
+    const question = typeof field.label === 'string' ? field.label.trim() : '';
+    // '(unlabelled)' is the filler's own placeholder for a field whose label could not
+    // be read. There is no question there to answer.
+    if (question.length === 0 || question === '(unlabelled)') continue;
+    if (question.length > QUESTION_MAX) continue;
+
+    // A record written before `fieldClass` existed is classified from its label now,
+    // through the same function that classified it then. Cheaper than a migration over
+    // a Json column, and it cannot disagree with the filler about what a declaration is
+    // the way a second copy of the pattern here would.
+    const fieldClass =
+      typeof field.fieldClass === 'string'
+        ? field.fieldClass
+        : classify(question, 'other').fieldClass;
+    if (fieldClass === 'demographic' || fieldClass === 'consent') continue;
+
+    out.push({ question, required: field.required === true });
+  }
+  return out;
+}
+
+/** When that application's form was read, from the record itself. */
+function preparedAt(value: Prisma.JsonValue | null): string | null {
+  const at = asRecord(value)?.preparedAt;
+  return typeof at === 'string' && at.length > 0 ? at : null;
+}
+
+function asRecord(
+  value: Prisma.JsonValue | null | undefined,
+): Record<string, Prisma.JsonValue> | null {
+  return value !== null &&
+    value !== undefined &&
+    typeof value === 'object' &&
+    !Array.isArray(value)
+    ? (value as Record<string, Prisma.JsonValue>)
+    : null;
+}
+
+/** The same cap the question input on the screen carries. A label longer than this is
+ *  a paragraph of instructions, not a question to file an answer under. */
+const QUESTION_MAX = 500;
 
 /** The row and its converted form, as the screen needs them. */
 function viewOf(
   row: { updatedAt: Date } | null,
   stated: StatedAnswers,
+  asked: AskedQuestion[],
 ): AnswersView {
+  // Answered is answered, by whichever wording. Compared the way the form filler
+  // compares at fill time, so a question this hides is one it would really answer.
+  const answered = new Set(
+    Object.keys(stated.customAnswers).map((question) =>
+      normalizeQuestion(question),
+    ),
+  );
+  const outstanding = asked.filter(
+    (entry) => !answered.has(normalizeQuestion(entry.question)),
+  );
+  const alreadyOffered = new Set(
+    outstanding.map((entry) => normalizeQuestion(entry.question)),
+  );
+
   return {
     answers: {
       workAuthorization: stated.workAuthorization,
@@ -142,6 +347,13 @@ function viewOf(
     stated: row !== null,
     updatedAt: row?.updatedAt.toISOString() ?? null,
     missing: missingRequiredAnswers(stated),
+    asked: outstanding,
+    // A starter is only a starter. One a real form has already asked is offered from
+    // that list instead, where it carries a count and a date.
+    suggested: COMMON_QUESTIONS.filter((question) => {
+      const key = normalizeQuestion(question);
+      return !answered.has(key) && !alreadyOffered.has(key);
+    }),
   };
 }
 

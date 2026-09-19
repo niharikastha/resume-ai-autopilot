@@ -21,9 +21,15 @@
  *                process, and a guessed expected CTC anchors a negotiation.
  *
  *   long-form    "Why do you want to work here", in a textarea. Flagged rather than
- *                filled. Not for safety - because a generated paragraph is the thing
- *                a recruiter notices, and the candidate is sitting in front of the
- *                browser anyway.
+ *                filled, UNLESS the candidate has stored an answer to that exact
+ *                question - see prefill.engine, which reaches the answers library for
+ *                these. Nothing is generated for them: a paragraph written by a model is
+ *                the thing a recruiter notices, and the candidate is sitting in front of
+ *                the browser anyway.
+ *
+ *   consent      "I confirm I have read the above", "I agree to the privacy policy".
+ *                Never ticked, from any source. A tick here is a declaration, and a
+ *                declaration made by a program is one nobody made.
  *
  * Everything else is `ordinary`: name, email, phone, links, the resume file. Facts
  * already on the resume, typed identically every time, and the whole reason this
@@ -61,7 +67,12 @@ export type AnswerKey =
   | 'willingToRelocate'
   | 'earliestStartDate';
 
-export type FieldClass = 'ordinary' | 'demographic' | 'legal' | 'long-form';
+export type FieldClass =
+  | 'ordinary'
+  | 'demographic'
+  | 'legal'
+  | 'long-form'
+  | 'consent';
 
 /**
  * EEO and self-identification vocabulary.
@@ -84,7 +95,29 @@ const DEMOGRAPHIC =
  * of through the profile - which is the safer of the two paths anyway.
  */
 const LEGAL =
-  /\b(visa|sponsor(?:ship|ed|ing)?|work authoriz|work permit|authoriz(?:ed|ation) to work|legally (?:authoriz|entitl|eligib)|right to work|citizen(?:ship)?|h-?1-?b|opt|ead|green card|notice period|current (?:ctc|salary|compensation|pay)|expected (?:ctc|salary|compensation|pay)|salary expectation|compensation expectation|desired salary|relocat(?:e|ion|ing)|earliest start|start date|available to start|availability|joining date)\b/i;
+  /\b(visa|sponsor(?:ship|ed|ing)?|work authoriz|work permit|authoriz(?:ed|ation) to work|legally (?:authoriz|entitl|eligib)|right to work|citizen(?:ship)?|h-?1-?b|opt|ead|green card|notice period|period of notice|(?:current|present|latest|existing) (?:annual )?(?:ctc|salary|compensation|pay|package|fixed)|(?:expected|desired|preferred) (?:annual )?(?:ctc|salary|compensation|pay|package)|(?:salary|compensation|ctc) expectation|in-?hand|relocat(?:e|ion|ing)|earliest start|start date|available to start|available from|availability|joining date|date of joining|how soon can you join|when can you (?:join|start))\b/i;
+
+/**
+ * A box that is a signature: "I confirm", "I agree to the privacy policy".
+ *
+ * A CLASS OF ITS OWN, AND NEVER TICKED, for two reasons that are both worse than a
+ * blank box. The obvious one is that ticking it is the candidate attesting to something
+ * - and a tick placed by a program is an attestation nobody made.
+ *
+ * The second one is why this pattern is checked BEFORE the legal one. "I certify that I
+ * am legally authorised to work in the United States" matches LEGAL, which routes it to
+ * the stored workAuthorization - a sentence like "Indian citizen" - and a text answer
+ * arriving at a checkbox used to TICK it. So the stored answer to a question about India
+ * would have signed a declaration about America. Classed here, it is left alone and
+ * flagged, and prefill.engine refuses text-into-checkbox as well; either would be
+ * enough, and a false attestation on a real application is worth both.
+ *
+ * `\bi (?:agree|confirm...)\b` rather than the bare verbs, because "Agreed rate" and
+ * "Confirm email address" are ordinary fields and the first person is what makes this
+ * one a declaration.
+ */
+const CONSENT =
+  /\b(i (?:confirm|agree|accept|certify|acknowledge|consent|understand|declare|attest|have read)|terms (?:and conditions|of (?:use|service))|privacy (?:policy|notice|statement)|consent to|data processing|gdpr|declaration|not a robot)\b/i;
 
 /** Where the tailored PDF goes. */
 const RESUME = /\b(resume|résumé|cv|curriculum vitae|upload)\b/i;
@@ -112,34 +145,40 @@ const ORDINARY: readonly [AnswerKey, RegExp][] = [
   ['location', /\b(location|city|current city|where.*based|address|town)\b/i],
 ];
 
-/** How a legal label maps onto the ApplicationAnswers row. */
+/**
+ * How a legal label maps onto the ApplicationAnswers row.
+ *
+ * EVERY PATTERN HERE MUST ALSO MATCH `LEGAL`, which is the gate this is only reached
+ * through. A phrasing added here and not there does nothing at all, silently - the
+ * field falls past the legal branch and ends up "no stored answer matches", which is
+ * the complaint this list exists to answer.
+ *
+ * WIDENED TO THE WORDING INDIAN FORMS ACTUALLY USE. "Current CTC" is the textbook
+ * phrasing and the boards write "Present CTC", "Current Fixed CTC", "CTC expectation",
+ * "How soon can you join?" and "Date of joining". Each of those was a box left empty
+ * next to a stored answer that would have filled it.
+ */
 const LEGAL_KEYS: readonly [AnswerKey, RegExp][] = [
   ['needsSponsorship', /\b(sponsor(?:ship|ed|ing)?|visa)\b/i],
   [
     'workAuthorization',
     /\b(work authoriz|work permit|authoriz(?:ed|ation) to work|legally (?:authoriz|entitl|eligib)|right to work|citizen(?:ship)?)\b/i,
   ],
-  ['noticePeriodDays', /\bnotice period\b/i],
-  ['currentCtcLpa', /\bcurrent (?:ctc|salary|compensation|pay)\b/i],
+  ['noticePeriodDays', /\b(notice period|period of notice)\b/i],
+  [
+    'currentCtcLpa',
+    /\b(?:current|present|latest|existing) (?:annual )?(?:ctc|salary|compensation|pay|package|fixed)\b/i,
+  ],
   [
     'expectedCtcLpa',
-    /\b(expected (?:ctc|salary|compensation|pay)|salary expectation|compensation expectation|desired salary)\b/i,
+    /\b((?:expected|desired|preferred) (?:annual )?(?:ctc|salary|compensation|pay|package)|(?:salary|compensation|ctc) expectation)\b/i,
   ],
   ['willingToRelocate', /\brelocat(?:e|ion|ing)\b/i],
   [
     'earliestStartDate',
-    /\b(earliest start|start date|available to start|availability|joining date)\b/i,
+    /\b(earliest start|start date|available to start|available from|availability|joining date|date of joining|how soon can you join|when can you (?:join|start))\b/i,
   ],
 ];
-
-/**
- * A textarea whose answer is prose about this specific company.
- *
- * Only used to distinguish a long-form question from a long-form field that happens
- * to be the cover letter, which IS filled - the tailoring phase already wrote one and
- * ran it past the provenance guard.
- */
-const LONG_FORM_MIN_LABEL_WORDS = 4;
 
 export interface ClassifiedField {
   readonly fieldClass: FieldClass;
@@ -191,6 +230,21 @@ export function classify(label: string, type: string): ClassifiedField {
     };
   }
 
+  // BEFORE THE LEGAL BRANCH. A declaration that mentions work authorisation is a
+  // signature, not a question - see CONSENT. Restricted to the controls a declaration
+  // is actually made with, so a text box asking "which terms of service have you worked
+  // on" stays ordinary.
+  if (
+    (type === 'checkbox' || type === 'radio' || type === 'other') &&
+    CONSENT.test(text)
+  ) {
+    return {
+      fieldClass: 'consent',
+      key: null,
+      reason: 'a declaration only you can make, so it is never ticked for you',
+    };
+  }
+
   if (LEGAL.test(text)) {
     const match = LEGAL_KEYS.find(([, pattern]) => pattern.test(text));
     return {
@@ -219,11 +273,16 @@ export function classify(label: string, type: string): ClassifiedField {
     };
   }
 
-  // A textarea with a sentence for a label is a question about this company.
-  if (
-    type === 'textarea' &&
-    text.split(/\s+/).length >= LONG_FORM_MIN_LABEL_WORDS
-  ) {
+  // Any textarea that got this far wants prose.
+  //
+  // WAS: a textarea whose label ran to four words or more. The count was standing in
+  // for "this is a question rather than a field", and it is not needed - a textarea
+  // reaching this line has already failed the resume, cover-letter, legal and ordinary
+  // patterns, and the only thing left for it to be is writing. The threshold's one real
+  // effect was on the short labels: "Additional Information" is two words, so the box
+  // every Ashby form ends with was reported as "no stored answer matches" - which reads
+  // as a missing setting rather than as a paragraph nobody can write for you.
+  if (type === 'textarea') {
     return {
       fieldClass: 'long-form',
       key: null,

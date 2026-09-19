@@ -268,6 +268,14 @@ export default function MatchesPage() {
   );
 
   const hidden = all.length - shown.length;
+  /**
+   * How many of the rows on screen are ones nobody will fill in for you.
+   *
+   * Counted over `shown` rather than over everything fetched, so the sentence explaining
+   * the badge appears exactly when a badge is visible. Explaining a marker that is
+   * filtered out of view is how a page teaches somebody a rule they then cannot find.
+   */
+  const byHand = shown.filter((row) => row.applyByHand).length;
   const filtered = needle !== '' || minFit !== DEFAULT_MIN_SCORE || decided !== 'all';
   const clear = () => {
     setQ('');
@@ -333,6 +341,16 @@ export default function MatchesPage() {
                 onClear={clear}
                 capped={all.length >= PAGE_CAP}
               />
+            )}
+
+            {byHand > 0 && (
+              <p className="border-b border-[var(--border)] px-5 py-3 text-xs text-[var(--ink-secondary)]">
+                <Badge tone="warning">by hand</Badge>{' '}
+                {byHand === 1 ? 'One posting here is' : `${num(byHand)} of these are`}{' '}
+                on Workday, where a form cannot be filled for you — it needs an account
+                on that employer&apos;s own site and walks through several pages. Saying
+                yes still writes you a tailored resume to attach; the typing is yours.
+              </p>
             )}
 
             {shown.length === 0 ? (
@@ -630,6 +648,10 @@ function SuggestionRow({
         <Badge tone={VERDICT_TONE[row.verdict] ?? 'neutral'}>
           {row.verdict.toLowerCase()}
         </Badge>
+
+        {/* Marked on the row, not only explained once above it, because the two kinds
+            of posting are mixed together in every order this list offers. */}
+        {row.applyByHand && <Badge tone="warning">by hand</Badge>}
 
         <a
           href={row.applyUrl}

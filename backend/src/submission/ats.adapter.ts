@@ -14,7 +14,7 @@
  * engine's job.
  */
 import type { AtsType } from '@prisma/client';
-import type { AnswerKey } from './field-policy';
+import type { AnswerKey, FieldClass } from './field-policy';
 import type { AnswerSet } from './answers';
 import type { FormPage } from './form-page';
 
@@ -44,6 +44,15 @@ export interface FilledField {
   outcome: 'filled' | 'blank' | 'skipped' | 'failed';
   /** The key that answered it, when one did. */
   key: AnswerKey | null;
+  /**
+   * What kind of question it was judged to be.
+   *
+   * Stored alongside the outcome because "left blank" has several meanings and they
+   * call for different things: an EEO box is finished, a declaration wants one click,
+   * and a question with no stored answer wants an answer. The answers screen reads
+   * this to offer back the third kind and only the third kind.
+   */
+  fieldClass: FieldClass;
   /** Why it ended that way, in the words the run log prints. */
   reason: string;
   /**
@@ -70,6 +79,23 @@ export interface PrefillResult {
 
 export interface AtsAdapter {
   readonly atsType: AtsType;
+
+  /**
+   * Whether this adapter actually fills a form, or declines and hands the URL to a
+   * human.
+   *
+   * DECLARED HERE SO A SCREEN CAN ASK BEFORE THE BROWSER OPENS. `prefill` answers the
+   * same question, but only after a run - and a list of postings has to be able to say
+   * "this one you fill yourself" while it is still a list. Without it the app offers
+   * every row identically and the difference only shows up as an application sitting at
+   * 0% coverage, which reads as a failure rather than as the policy it is.
+   *
+   * Set on the ADAPTER rather than kept as a list of AtsType values somewhere else,
+   * because the decision follows the form and the URL is what says which form: a
+   * posting whose stored atsType is GREENHOUSE and whose link redirects to Workday is
+   * a by-hand application, whatever the connector recorded.
+   */
+  readonly automated: boolean;
 
   /** Whether this adapter owns the URL. Matched on the host, never on the posting's
    *  recorded atsType - a posting reached through a redirect lands somewhere the

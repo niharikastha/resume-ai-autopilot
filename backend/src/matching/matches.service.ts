@@ -17,6 +17,9 @@ import { MatchDecision } from '@prisma/client';
 import { Job, Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { QUEUE } from '../queue/queue.module';
+// A pure host test, not the adapter registry - see appliedByHand. Importing the
+// function does not pull SubmissionModule into this one.
+import { appliedByHand } from '../submission/board.adapters';
 import { DECIDABLE } from './decidable';
 import { ScoreJobData } from './matching.processor';
 
@@ -54,6 +57,15 @@ export interface MatchRow {
   companyTier: string;
   location: string | null;
   applyUrl: string;
+  /**
+   * True when opening that URL gets no form filling at all - today, Workday.
+   *
+   * Carried on the row rather than worked out on the client, because the answer is the
+   * host test the submit path itself uses and a second copy of it in the browser would
+   * be a second opinion about which forms this system can fill. The row says it so the
+   * page can stop offering a posting the same way whether or not the offer is real.
+   */
+  applyByHand: boolean;
   remoteType: string;
   postedAt: string | null;
   score: number;
@@ -281,6 +293,7 @@ export class MatchesService {
         companyTier: score.job.company?.tier ?? 'UNKNOWN',
         location: score.job.location,
         applyUrl: score.job.applyUrl,
+        applyByHand: appliedByHand(score.job.applyUrl),
         remoteType: score.job.remoteType,
         postedAt: score.job.postedAt?.toISOString() ?? null,
         score: score.score,

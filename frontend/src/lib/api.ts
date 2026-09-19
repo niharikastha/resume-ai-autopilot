@@ -298,6 +298,22 @@ export const REQUIRED_ANSWER_LABEL: Record<string, string> = {
   expectedCtcLpa: 'Expected CTC',
 };
 
+/**
+ * A question one of this candidate's own forms asked and nothing could answer.
+ *
+ * Read by the server out of the audit record every prepared application writes, so the
+ * wording is the FORM'S wording - which is the wording that will match the next time it
+ * is asked. Demographic boxes and declarations are not in here; those are not gaps.
+ */
+export interface AskedQuestion {
+  question: string;
+  /** How many prepared applications asked it. The reason to answer this one first. */
+  timesAsked: number;
+  lastAskedAt: string | null;
+  /** True when at least one of those forms would not send without it. */
+  required: boolean;
+}
+
 export interface AnswersView {
   answers: StatedAnswers;
   /** False until something has been saved at least once. */
@@ -306,6 +322,12 @@ export interface AnswersView {
   /** Field names an application cannot be prepared without. Same list the daily
    *  digest and the dashboard blocker read. */
   missing: string[];
+  /** Unanswered questions off real forms, commonest first. Already-answered ones are
+   *  filtered out server-side; empty until an application has been prepared. */
+  asked: AskedQuestion[];
+  /** Starter questions for a library with nothing in it. Questions only - the server
+   *  never sends an answer to go with one. */
+  suggested: string[];
 }
 
 export interface ApplicationRow {
@@ -321,6 +343,9 @@ export interface ApplicationRow {
     location: string | null;
     applyUrl: string;
     atsType?: string;
+    /** Same field, same reason, as MatchSuggestion.applyByHand. It is what stops a
+     *  0% "form filled" reading as a prefill that failed. */
+    applyByHand: boolean;
   };
   resumeVariant?: { pdfPath: string | null; guardPassed: boolean } | null;
 }
@@ -636,6 +661,15 @@ export interface MatchSuggestion {
   companyTier: string;
   location: string | null;
   applyUrl: string;
+  /**
+   * True when this board gets no form filling at all - today that means Workday.
+   *
+   * Sent by the server, and NOT worked out here from `applyUrl` or from an ATS name:
+   * the decision is the host test the submit path itself runs, and a copy of it in the
+   * browser would be a second opinion that drifts the day an adapter changes. See
+   * appliedByHand in the backend's submission/board.adapters.ts.
+   */
+  applyByHand: boolean;
   remoteType: string;
   postedAt: string | null;
   score: number;

@@ -4,6 +4,7 @@ import { loadTargets } from '../config/targets';
 import { suitsCandidateSql } from '../matching/relevance.sql';
 import { PrismaService } from '../prisma/prisma.service';
 import { missingRequiredAnswers, toStatedAnswers } from '../submission/answers';
+import { appliedByHand } from '../submission/board.adapters';
 
 /**
  * Regexes mirroring the spike's relevance filters, kept in SQL so the funnel is
@@ -54,6 +55,24 @@ export interface FunnelStage {
   /** What produces this stage, so an empty stage reads as "not built yet"
    *  rather than "broken". */
   phase: string;
+}
+
+/**
+ * Adds "you fill this one yourself" to an application row.
+ *
+ * The applications table shows a "form filled" percentage, and a board this system
+ * declines to touch has no such figure - it is stored null, and rows prepared before
+ * that was true are stored 1, which reads as 100% filled on a form nothing was typed
+ * into. This is the field that lets the column say which of the two it is, including
+ * for those older rows.
+ *
+ * Computed here rather than stored on the Application row, because it is a property of
+ * the CURRENT rules and not a fact about that day: the day Workday prefill is built,
+ * every existing row should stop claiming it needs hands, and a stored copy would go on
+ * saying it forever.
+ */
+function withApplyByHand<T extends { job: { applyUrl: string } }>(row: T) {
+  return { ...row, job: { ...row.job, applyByHand: appliedByHand(row.job.applyUrl) } };
 }
 
 @Injectable()
@@ -672,7 +691,7 @@ export class DashboardService {
    * to cross the account boundary is always written down at the call site.
    */
   async applications(userId: string, status?: ApplicationStatus) {
-    return this.prisma.application.findMany({
+    const rows = await this.prisma.application.findMany({
       where: { userId, ...(status ? { status } : {}) },
       include: {
         company: { select: { name: true, tier: true } },
@@ -689,12 +708,13 @@ export class DashboardService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+    return rows.map(withApplyByHand);
   }
 
   /** Admin-only. Carries the owning account so cross-account rows are labelled,
    *  never silently merged into one undifferentiated list. */
   async adminApplications(status?: ApplicationStatus) {
-    return this.prisma.application.findMany({
+    const rows = await this.prisma.application.findMany({
       where: status ? { status } : undefined,
       include: {
         user: { select: { id: true, name: true, email: true } },
@@ -712,6 +732,7 @@ export class DashboardService {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+    return rows.map(withApplyByHand);
   }
 
   async runs(limit: number) {

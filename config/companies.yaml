@@ -46,13 +46,32 @@
 #       ats: SMARTRECRUITERS
 #       token: BoschGroup
 #
-# DELIBERATELY ABSENT
-#   Companies on Workday or an in-house ATS: Amazon, Google, Apple, Microsoft,
-#   Oracle, Adobe, Salesforce, Walmart, PayPal, SAP, Uber, TCS, Infosys, Wipro,
-#   Accenture. PLAN-v2 phase 6 drops Workday (per-tenant accounts, stateful
-#   multi-step flow) and there is no public JSON for the in-house ones, so a hit
-#   would produce postings nothing can prefill. Also absent: Keka, Zoho Recruit
-#   and Darwinbox tenants, for the reasons in PLAN-v2 change 3.
+# WORKDAY IS NO LONGER ABSENT - CORRECTED 2026-09-17
+#   This note used to say Workday companies were excluded because "PLAN-v2 phase
+#   6 drops Workday ... so a hit would produce postings nothing can prefill".
+#   That reasoning outlived its own facts. workday.connector.ts was built and
+#   verified against live boards, and then no company was ever pointed at it -
+#   so the code to read NVIDIA, Salesforce, Adobe and Micron sat idle for weeks
+#   while this comment explained why it should not exist.
+#
+#   THE PREFILL ARGUMENT WAS THE WRONG TEST. It is true that nothing can fill a
+#   Workday form. It does not follow that the postings are worthless: a scored,
+#   ranked, explained posting with an apply link is most of what this system is
+#   for, and "you type this one yourself" is a far better outcome than never
+#   learning the job was open. 17 verified boards are in the T1 section below,
+#   carrying roughly 250-320 India postings each.
+#
+# STILL DELIBERATELY ABSENT
+#   Amazon, Google, Apple, Microsoft, Oracle, SAP, Uber, TCS, Infosys, Wipro and
+#   Accenture, which run in-house portals with no public JSON - there is nothing
+#   to read, connector or not. Also absent: Keka, Zoho Recruit and Darwinbox
+#   tenants, for the reasons in PLAN-v2 change 3.
+#
+#   And every Workday employer whose site name could not be verified: Cisco,
+#   Dell, Intuit, ServiceNow, Walmart, Qualcomm, Expedia, Optum, Wells Fargo,
+#   American Express, Western Digital, Seagate and Juniper were all probed and
+#   all missed. They are absent for lack of a checked token, NOT by policy - see
+#   the Workday block's note on adding them by pasting a real board URL.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -176,17 +195,20 @@ t1_global_india_office:
   equinix: Equinix
 
   # Silicon and engineering software - large India design centres.
+  #
+  # Micron, Analog Devices, NXP and Autodesk USED to sit here as bare slugs. All four
+  # missed every connector the sweep probes (see company_probes) because all four are
+  # on Workday, and they are now declared with verified tokens in the Workday block
+  # below. A bare slug and an object form for the same key would be a duplicate
+  # mapping key, which YAML resolves by silently keeping one - so they moved rather
+  # than being repeated.
   amd: AMD
   arm: Arm
   marvell: Marvell
-  micron: Micron
-  analogdevices: Analog Devices
-  nxp: NXP Semiconductors
   cadence: Cadence Design Systems
   synopsys: Synopsys
   ansys: Ansys
   ptc: PTC
-  autodesk: Autodesk
   mathworks: MathWorks
   keysight: Keysight Technologies
   bosch:
@@ -458,6 +480,120 @@ t1_global_india_office:
   phenom: Phenom People
   codesignal: CodeSignal
   hackerearth: HackerEarth
+
+  # ---------------------------------------------------------------------------
+  # WORKDAY BOARDS - the large-employer source, and the reason this file's
+  # "deliberately absent" note above was rewritten.
+  # ---------------------------------------------------------------------------
+  # EVERY TOKEN HERE WAS VERIFIED LIVE, one request each, on 2026-09-17. The
+  # number in each note is what `POST /wday/cxs/{tenant}/{site}/jobs` reported
+  # as `total` at that moment, and the india figure is the same call with
+  # `searchText: "India"` - a rough proxy, not the India rule discovery applies,
+  # but enough to show these boards are worth the traffic.
+  #
+  # WHY EVERY ONE IS THE OBJECT FORM. A Workday board cannot be guessed and the
+  # sweep skips it: the identity is tenant + data centre + CASE-SENSITIVE site
+  # name, packed into atsToken as `tenant:wd{N}:Site`. `nvidia` alone is not
+  # enough to build a single URL. So each entry is a fact that was checked, not
+  # a guess that might hit - which is the opposite of the rest of this file.
+  #
+  # HOW TO ADD MORE. Do not guess site names - a probe run of 25 plausible ones
+  # (Cisco, Dell, Intuit, ServiceNow, Walmart, Qualcomm, Optum, Amex and the
+  # rest) returned zero hits, which is exactly why the sweep does not try.
+  # Instead find the company's real board URL, paste it into "Add a company" in
+  # the admin UI, and board-url.ts decodes the token from it. Those companies
+  # are all still missing and all still reachable that way.
+  #
+  # WHAT THESE ROWS CANNOT DO: be prefilled. WorkdayAdapter fills nothing -
+  # per-tenant accounts and a multi-step wizard - so these arrive as postings
+  # that are scored, ranked and linked, and applied to by hand. That is a worse
+  # apply experience than a Greenhouse row and a far better one than not
+  # knowing the job exists.
+  nvidia:
+    name: NVIDIA
+    ats: WORKDAY
+    token: nvidia:wd5:NVIDIAExternalCareerSite
+    note: 2000 postings, ~273 India. The board the connector was written against.
+  salesforce:
+    name: Salesforce
+    ats: WORKDAY
+    token: salesforce:wd12:External_Career_Site
+    note: 1478 postings, ~249 India. wd12, not wd1 - the data centre is per tenant.
+  adobe:
+    name: Adobe
+    ats: WORKDAY
+    token: adobe:wd5:external_experienced
+    note: 716 postings, ~137 India. Lower-cased site name, unlike most.
+  micron:
+    name: Micron
+    ats: WORKDAY
+    token: micron:wd1:External
+    note: 3036 postings, ~322 India - the largest board in this block.
+  amat:
+    name: Applied Materials
+    ats: WORKDAY
+    token: amat:wd1:External
+    note: 2000 postings. Tenant is `amat`, which no slug guess would have found.
+  target:
+    name: Target
+    ats: WORKDAY
+    token: target:wd5:targetcareers
+    note: 2000 postings, ~303 India. Target's India tech centre is large.
+  mastercard:
+    name: Mastercard
+    ats: WORKDAY
+    token: mastercard:wd1:CorporateCareers
+    note: 1057 postings, ~244 India.
+  db:
+    name: Deutsche Bank
+    ats: WORKDAY
+    token: db:wd3:DBWebsite
+    note: 1159 postings. Large Pune and Bangalore technology centres.
+  philips:
+    name: Philips
+    ats: WORKDAY
+    token: philips:wd3:jobs-and-careers
+    note: 820 postings. Bangalore innovation campus.
+  analogdevices:
+    name: Analog Devices
+    ats: WORKDAY
+    token: analogdevices:wd1:External
+    note: 814 postings. Was a dead bare slug above until this token was checked.
+  nxp:
+    name: NXP Semiconductors
+    ats: WORKDAY
+    token: nxp:wd3:careers
+    note: 788 postings. Noida and Bangalore design centres.
+  fmr:
+    name: Fidelity Investments
+    ats: WORKDAY
+    token: fmr:wd1:FidelityCareers
+    note: 691 postings. Tenant is `fmr`, the legal name - unguessable.
+  autodesk:
+    name: Autodesk
+    ats: WORKDAY
+    token: autodesk:wd1:Ext
+    note: 397 postings. Site is `Ext`, not `External`.
+  workday:
+    name: Workday
+    ats: WORKDAY
+    token: workday:wd5:Workday
+    note: 383 postings. Workday runs its own hiring on Workday.
+  blackrock:
+    name: BlackRock
+    ats: WORKDAY
+    token: blackrock:wd1:BlackRock_Professional
+    note: 343 postings. Large Mumbai and Gurgaon technology teams.
+  paypal:
+    name: PayPal
+    ats: WORKDAY
+    token: paypal:wd1:jobs
+    note: 302 postings. Chennai and Bangalore engineering.
+  spgi:
+    name: S&P Global
+    ats: WORKDAY
+    token: spgi:wd5:SPGI_Careers
+    note: 298 postings. Large Gurgaon and Hyderabad presence.
 
 # -----------------------------------------------------------------------------
 # T2 - WELL-FUNDED INDIAN PRODUCT STARTUPS

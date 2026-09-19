@@ -16,6 +16,7 @@ import {
 import {
   api,
   type AnswersView,
+  type AskedQuestion,
   type CustomAnswer,
   type StatedAnswers,
 } from '@/lib/api';
@@ -81,6 +82,25 @@ export function AnswersCard() {
         at === index ? { ...row, ...change } : row,
       ),
     });
+
+  const addQuestion = (question: string) =>
+    edit({
+      customAnswers: [...current.customAnswers, { question, answer: '' }],
+    });
+
+  // Offered questions already sitting in a row are dropped. The server filters against
+  // what was SAVED; this filters against what is on screen, which is what stops a chip
+  // clicked a second time from adding the same question twice before a save.
+  const onScreen = new Set(
+    current.customAnswers.map((row) => normalizeQuestion(row.question)),
+  );
+  const asked = saved.asked.filter(
+    (entry) => !onScreen.has(normalizeQuestion(entry.question)),
+  );
+  const starters = saved.suggested.filter(
+    (question) => !onScreen.has(normalizeQuestion(question)),
+  );
+  const full = current.customAnswers.length >= MAX_CUSTOM;
 
   return (
     <Card>
@@ -209,6 +229,55 @@ export function AnswersCard() {
             not matter.
           </p>
 
+          {/* The questions the forms themselves asked, offered back.
+              WHY THIS IS HERE: without it the only way to fill this library was to
+              remember a question, guess the wording, and hope it came round again — so
+              it stayed empty and every form reported "no stored answer matches". Each
+              chip is one click and then a sentence. */}
+          {!full && (asked.length > 0 || starters.length > 0) && (
+            <div className="mb-4 space-y-3">
+              {asked.length > 0 && (
+                <div>
+                  <p className="text-xs text-[var(--ink-secondary)]">
+                    Asked by forms you have already prepared, and left blank because
+                    nothing here answered them:
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {asked.map((entry) => (
+                      <Offer
+                        key={entry.question}
+                        question={entry.question}
+                        note={offerNote(entry)}
+                        title={askedTitle(entry)}
+                        onClick={() => addQuestion(entry.question)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {starters.length > 0 && (
+                <div>
+                  {/* Says "the question" and not "an answer" on purpose: these carry no
+                      suggested answer, here or on the server. */}
+                  <p className="text-xs text-[var(--ink-secondary)]">
+                    Common on Indian forms. Adding one fills in the question — the answer
+                    is yours to write:
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {starters.map((question) => (
+                      <Offer
+                        key={question}
+                        question={question}
+                        onClick={() => addQuestion(question)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             {current.customAnswers.map((row, index) => (
               // Keyed by position, deliberately. There is no id to key by, and the
@@ -254,15 +323,8 @@ export function AnswersCard() {
             size="sm"
             icon={Plus}
             className="mt-2"
-            disabled={current.customAnswers.length >= MAX_CUSTOM}
-            onClick={() =>
-              edit({
-                customAnswers: [
-                  ...current.customAnswers,
-                  { question: '', answer: '' },
-                ],
-              })
-            }
+            disabled={full}
+            onClick={() => addQuestion('')}
           >
             Add a question
           </Button>
@@ -290,6 +352,75 @@ export function AnswersCard() {
 
 /** The same cap as CUSTOM_ANSWERS_MAX on the server, so it is reached here first. */
 const MAX_CUSTOM = 50;
+
+/**
+ * One offered question: a click that adds a row with the question already typed.
+ *
+ * A button and not a link or a chip-with-a-close: the only thing it does is add a row,
+ * and it disappears once the row exists because the row is then the thing to edit.
+ */
+function Offer({
+  question,
+  note,
+  title,
+  onClick,
+}: {
+  question: string;
+  note?: string;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-[var(--r-sm)] border border-dashed border-[var(--border-strong)] px-2 py-1 text-left text-xs text-[var(--ink-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+    >
+      <Plus size={11} aria-hidden className="shrink-0" />
+      {/* Truncated rather than wrapped. A form's own label runs to a sentence and a
+          three-line chip stops reading as one thing to click; the full text lands in the
+          input the moment it is added, and in the tooltip before that. */}
+      <span className="truncate">{question}</span>
+      {note && <span className="shrink-0 text-[var(--ink-muted)]">{note}</span>}
+    </button>
+  );
+}
+
+/** The short reason to answer this one first. Nothing for a question asked once by a
+ *  form that did not require it - a count of 1 is not information. */
+function offerNote(entry: AskedQuestion): string | undefined {
+  const parts = [
+    entry.timesAsked > 1 ? `${entry.timesAsked} forms` : '',
+    entry.required ? 'required' : '',
+  ].filter((part) => part !== '');
+  return parts.length === 0 ? undefined : `· ${parts.join(' · ')}`;
+}
+
+function askedTitle(entry: AskedQuestion): string {
+  const when = entry.lastAskedAt
+    ? `, last ${relativeTime(entry.lastAskedAt)}`
+    : '';
+  return `${entry.question}\nAsked on ${entry.timesAsked} prepared application${
+    entry.timesAsked === 1 ? '' : 's'
+  }${when}.`;
+}
+
+/**
+ * The same comparison the server and the form filler make.
+ *
+ * DUPLICATED HERE KNOWINGLY, and it is the one place that is safe: this decides only
+ * whether to keep showing a chip. The server re-filters on save and the form filler
+ * matches at fill time, so a drift between the two costs a chip that lingers - never a
+ * duplicate stored answer or a question answered from the wrong row.
+ */
+function normalizeQuestion(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * The form's own state: strings, because that is what an input holds.

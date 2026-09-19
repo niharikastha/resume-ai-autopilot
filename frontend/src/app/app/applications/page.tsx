@@ -5,6 +5,7 @@ import { Briefcase, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { PageHeader } from '@/components/shell';
 import {
+  Badge,
   Card,
   controlClass,
   EmptyState,
@@ -44,7 +45,9 @@ export default function ApplicationsPage() {
     <>
       <PageHeader
         title="Applications"
-        subtitle="Forms are filled for you up to the submit button. The last click is always yours — nothing is ever sent automatically."
+        // Says "most" rather than "forms are filled for you", because Workday is not
+        // filled at all and a promise this page cannot keep is worse than a caveat.
+        subtitle="Most forms are filled for you up to the submit button; the ones marked “by hand” are not. The last click is always yours — nothing is ever sent automatically."
       />
 
       <div className="space-y-4 px-4 pb-6 sm:px-6">
@@ -102,7 +105,17 @@ export default function ApplicationsPage() {
                       </span>
                     </Td>
                     <Td nowrap>{STATUS_LABEL[a.status] ?? a.status}</Td>
-                    <Td numeric>{pct(a.prefillCoverage)}</Td>
+                    {/* "by hand" beats both a percentage and a dash here. A Workday
+                        row is stored with no coverage because none was measured, and
+                        rows prepared before that was true are stored 1 - so a plain
+                        percentage would show 100% on a form nobody typed into. */}
+                    <Td numeric>
+                      {a.job.applyByHand ? (
+                        <Badge tone="warning">by hand</Badge>
+                      ) : (
+                        pct(a.prefillCoverage)
+                      )}
+                    </Td>
                     <Td nowrap>{relativeTime(a.updatedAt)}</Td>
                     <Td nowrap>
                       <a

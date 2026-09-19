@@ -212,9 +212,14 @@ function report(item: PlannedApplication, ready: PreparedResult): void {
   const { prefill } = ready;
   console.log(`${item.title} @ ${item.company}`);
   console.log(`  ${item.applyUrl}`);
+  // A null coverage is a board this system does not fill, and printing "0%" for it
+  // would read as a prefill that went wrong rather than one never attempted. The
+  // needsHuman lines below say what to do instead.
   console.log(
-    `  ${prefill.requiredFilled}/${prefill.requiredTotal} required fields filled ` +
-      `(${Math.round(ready.coverage * 100)}%)`,
+    ready.coverage === null
+      ? '  this board is filled by hand - nothing was typed for you'
+      : `  ${prefill.requiredFilled}/${prefill.requiredTotal} required fields filled ` +
+          `(${Math.round(ready.coverage * 100)}%)`,
   );
 
   const filled = prefill.fields.filter((field) => field.outcome === 'filled');

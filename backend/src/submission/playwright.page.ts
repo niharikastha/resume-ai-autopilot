@@ -88,6 +88,82 @@ const COLLECT = `(() => {
     return '';
   };
 
+  /**
+   * A label that is a PRECEDING SIBLING rather than an ancestor or a descendant.
+   *
+   * This is the markup React form libraries emit, and it is what Ashby and Greenhouse
+   * custom questions use:
+   *
+   *   <div>
+   *     <div class="_label_h3k">Are you legally authorised to work in India?</div>
+   *     <div><input /></div>        <-- closest('div') is THIS one
+   *   </div>
+   *
+   * Every other path below looks at the control's ancestors or inside its own wrapper,
+   * so none of them can see that text and the field arrives with label "". An
+   * unlabelled field is not merely cosmetic: nothing can match it to a stored answer,
+   * and the LLM resolver is handed an empty string and has nothing to reason about, so
+   * it is left blank and reported as "no stored answer matches". That is exactly what
+   * happened to two fields - one of them REQUIRED - on the only real prefill this
+   * system has run.
+   *
+   * NEAREST-FIRST, AND A LABEL-ISH SIBLING BEATS A PLAIN ONE. Two passes rather than
+   * one because the shapes differ in how much they can be trusted: an element that
+   * calls itself a label is a label at any depth, whereas a plain text sibling is only
+   * probably one, and only while it is close.
+   *
+   * THREE LEVELS, AND PLAIN TEXT ONLY FOR TWO. Climbing further reaches the PREVIOUS
+   * question's text, which is worse than no label at all - an unlabelled field is left
+   * blank for a human to fill, while a wrongly labelled one gets confidently filled
+   * with the wrong answer and looks finished.
+   *
+   * A CANDIDATE CONTAINING A CONTROL IS REJECTED. That is another field's block, not
+   * this field's label.
+   */
+  const LABELISH = 'label,legend,[class*="label"],[class*="Label"]';
+  const siblingLabel = function (el) {
+    const clean = function (sib, mustBeLabelish) {
+      if (!sib || sib.hasAttribute(ATTR)) return '';
+      const tagName = sib.tagName;
+      if (tagName === 'INPUT' || tagName === 'SELECT' || tagName === 'TEXTAREA') return '';
+      // Another field's block. Its text may well be a label - just not this one's.
+      if (sib.querySelector('input,select,textarea')) return '';
+      if (mustBeLabelish) {
+        const own = sib.matches && sib.matches(LABELISH);
+        const inner = sib.querySelector(LABELISH);
+        if (!own && !inner) return '';
+        if (!own && inner) {
+          const innerText = text(inner);
+          if (innerText && innerText.length <= 200) return innerText;
+        }
+      }
+      const found = text(sib);
+      return found && found.length <= 200 ? found : '';
+    };
+
+    // Pass one: a sibling that calls itself a label, up to three levels out.
+    let node = el;
+    for (let up = 0; up < 3 && node; up++) {
+      for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+        const found = clean(sib, true);
+        if (found) return found;
+      }
+      node = node.parentElement;
+    }
+
+    // Pass two: any short text sibling, but only from the two nearest levels.
+    node = el;
+    for (let up = 0; up < 2 && node; up++) {
+      for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+        const found = clean(sib, false);
+        if (found) return found;
+      }
+      node = node.parentElement;
+    }
+
+    return '';
+  };
+
   const groupLabel = function (el) {
     const set = el.closest('fieldset');
     if (set) {
@@ -101,10 +177,12 @@ const COLLECT = `(() => {
     }
     const box = el.closest('div,li,td,section');
     if (box) {
-      const near = box.querySelector('label,legend,[class*="label"],[class*="Label"]');
+      const near = box.querySelector(LABELISH);
       if (near && text(near)) return text(near);
     }
-    return '';
+    // Last, because it reaches OUTSIDE the control's own box and the paths above do
+    // not. Anything they can answer is better evidence than a sibling's text.
+    return siblingLabel(el);
   };
 
   const out = [];

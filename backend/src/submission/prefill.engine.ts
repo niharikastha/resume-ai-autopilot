@@ -16,12 +16,17 @@
  *   2. `classify()` on the label. The safety rules live here - demographic questions
  *      are refused before anything else looks at them.
  *   3. A stored custom answer for this exact question, if the candidate has typed one
- *      before. Reached for any field no key claimed - INCLUDING a legal question,
- *      which is correct: a customAnswers entry is a sentence the candidate wrote for
- *      that exact question, which is the same standard the ApplicationAnswers columns
- *      meet. It is NOT reached for a demographic or long-form field, because those
- *      return before it.
+ *      before. Reached for any field no key claimed - INCLUDING a legal question and
+ *      INCLUDING a long-form one, which is correct: a customAnswers entry is a sentence
+ *      the candidate wrote for that exact question, which is the same standard the
+ *      ApplicationAnswers columns meet. "Why do you want to work here?" is the example
+ *      the answers screen itself offers, and until this reached long-form fields that
+ *      stored paragraph was never typed anywhere.
  *   4. Nothing. The field stays as the form left it.
+ *
+ * TWO CLASSES NEVER REACH STEP 3, whatever is stored: `demographic`, because those
+ * answers are the candidate's alone, and `consent`, because a tick is a declaration and
+ * one click from a human at the keyboard is the whole cost of it.
  *
  * A FIELD THAT IS ALREADY NON-EMPTY IS LEFT ALONE and counted as filled. The browser
  * runs on a persistent profile, so Chrome's own autofill and the candidate's previous
@@ -43,6 +48,15 @@ import type {
   PrefillResult,
 } from './ats.adapter';
 import type { FormField, FormPage } from './form-page';
+
+/**
+ * A typed answer that means "tick it".
+ *
+ * Anchored and short. Anything longer than these is a sentence about something, and a
+ * sentence is not consent to whatever the box next to it says - see the checkbox branch
+ * of `write`.
+ */
+const AFFIRMATIVE = /^(yes|y|true|checked|tick(?:ed)?|agree|agreed|confirm(?:ed)?|i agree|i confirm|i do)$/i;
 
 /** Text-like controls, where `fill` is the right verb. */
 const TYPED = new Set([
@@ -234,13 +248,40 @@ async function apply(
     handle: field.handle,
     required: field.required,
     key: decision.key,
+    // Recorded so the audit row says WHY a field was left alone in one word, and so the
+    // answers screen can offer the unanswered questions back to the candidate without
+    // having to parse the reason sentence to tell a demographic box apart from one that
+    // is simply waiting for an answer.
+    fieldClass: decision.fieldClass,
   };
 
-  if (decision.fieldClass === 'demographic') {
+  if (decision.fieldClass === 'demographic' || decision.fieldClass === 'consent') {
     return { ...base, outcome: 'skipped', reason: decision.reason };
   }
+
+  // A free-text question, answered only if the candidate has written one for it before.
+  // Nothing is generated here - see the header.
   if (decision.fieldClass === 'long-form') {
-    return { ...base, outcome: 'skipped', reason: decision.reason };
+    const stored = storedCustom(field, answers);
+    if (!stored) return { ...base, outcome: 'skipped', reason: decision.reason };
+    try {
+      const typed = await write(page, field, stored);
+      if (typed !== null) {
+        return {
+          ...base,
+          outcome: 'filled',
+          reason: 'your stored answer to this exact question',
+          value: typed,
+        };
+      }
+      return { ...base, outcome: 'skipped', reason: decision.reason };
+    } catch (err) {
+      return {
+        ...base,
+        outcome: 'failed',
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   // File inputs report no value, so "already filled" cannot be detected for them and
@@ -331,9 +372,22 @@ async function write(
   if (field.type === 'checkbox') {
     // Only ever ticked, never unticked. `false` on a checkbox is what an untouched
     // form already says.
-    if (value.kind === 'boolean' && !value.value) return null;
-    await page.check(field.handle);
-    return 'checked';
+    if (value.kind === 'boolean') {
+      if (!value.value) return null;
+      await page.check(field.handle);
+      return 'checked';
+    }
+
+    // A TEXT ANSWER ONLY TICKS A BOX WHEN IT READS AS A YES. This used to tick on any
+    // text at all, which is how a stored work-authorisation sentence - "Indian citizen,
+    // no sponsorship required" - would have ticked "I certify that I am legally
+    // authorised to work in the United States". A stored answer is a statement about
+    // one question, and a tick is a statement about whatever the box says.
+    if (value.kind === 'text' && AFFIRMATIVE.test(value.value.trim())) {
+      await page.check(field.handle);
+      return 'checked';
+    }
+    return null;
   }
 
   if (field.type === 'select' || field.type === 'radio') {
@@ -398,6 +452,13 @@ function humanNeeds(field: FilledField): string | null {
 
   if (field.reason.startsWith('free-text')) {
     return `${field.label} - free text, for you to write`;
+  }
+
+  // ALWAYS, required or not. A form's own `required` flag is wrong about these more
+  // often than not - the confirmation box on a real Ashby form reports optional and the
+  // form will not send without it - and "tick this yourself" is one click to read past.
+  if (field.fieldClass === 'consent') {
+    return `${field.label} - tick this yourself, it is a declaration`;
   }
 
   // A legal question with nothing stored, whether or not the form requires it. These

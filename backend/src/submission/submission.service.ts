@@ -82,7 +82,8 @@ export interface PreparedResult {
   applicationId: string;
   planned: PlannedApplication;
   prefill: PrefillResult;
-  coverage: number;
+  /** Null when the board is one this system does not fill - see where it is set. */
+  coverage: number | null;
   /**
    * The page's visible text, read when called rather than captured now.
    *
@@ -319,7 +320,20 @@ export class SubmissionService {
       );
     }
 
-    const filled = coverage(prefill);
+    /**
+     * NULL for a board this system declines to fill, and a fraction otherwise.
+     *
+     * `coverage()` answers 1 when a form has nothing required, which is the right
+     * answer for a real form that asked for nothing and the wrong one for an adapter
+     * that never looked at a form at all: a Workday application reports
+     * requiredTotal 0, so stored as a number it would sit in the applications table
+     * reading 100% FILLED next to a form where not one character was typed - and it
+     * would pull the fleet-wide average up with it.
+     *
+     * Null is "not measured", which is what happened. It is also why the column is
+     * nullable already, and why nothing here is a schema change.
+     */
+    const filled = adapter.automated ? coverage(prefill) : null;
 
     await this.prisma.application.update({
       where: { id: applicationId },
