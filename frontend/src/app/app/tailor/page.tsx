@@ -37,6 +37,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { PdfFrame } from '@/components/pdf-frame';
 import { PageHeader } from '@/components/shell';
 import { useToast } from '@/components/toast';
 import {
@@ -155,7 +156,14 @@ export default function TailorPage() {
         subtitle="Point it at a description and it rewrites the wording of your own pieces for that job — the same template, the same file an employer would open, nothing invented."
       />
 
-      <div className="max-w-4xl space-y-4 px-4 pb-10 sm:px-6">
+      {/*
+        Two columns on a wide screen, the whole width of it: the description goes in on the
+        left and the document comes out on the right, pinned, so a run can be read against
+        the posting it was written for without scrolling between them. One column below xl,
+        with the document under the button that produced it.
+      */}
+      <div className="grid grid-cols-1 items-start gap-4 px-4 pb-10 sm:px-6 xl:grid-cols-2">
+        <div className="min-w-0 space-y-4">
         {resumes.isLoading && <SkeletonCard rows={3} />}
         {resumes.error && (
           <ErrorNote message={(resumes.error as Error).message} />
@@ -341,8 +349,6 @@ export default function TailorPage() {
               </div>
             </Card>
 
-            {result && <TailoredCard row={result} />}
-
             <Card>
               <CardHeader
                 title="Tailored earlier"
@@ -375,17 +381,40 @@ export default function TailorPage() {
             </p>
           </>
         )}
+        </div>
+
+        <div className="min-w-0 xl:sticky xl:top-16">
+          {result ? (
+            <TailoredCard row={result} />
+          ) : (
+            <Card>
+              <EmptyState
+                icon={Wand2}
+                title="The resume appears here"
+                detail="Written by the same code that writes a real application, so what you read here is the file. Nothing is downloaded until you ask for it."
+              />
+            </Card>
+          )}
+        </div>
       </div>
     </>
   );
 }
 
-/** The run that just finished, in full: what the guard said, the letter, the files. */
+/**
+ * The run that just finished, in full: the document, what the guard said, the letter.
+ *
+ * THE DOCUMENT IS ON SCREEN, not behind the download button. A resume the candidate has
+ * not read is the one thing this whole pipeline is arranged to avoid producing, and
+ * "download it and open it in Word to find out what it says" is how that happens. The pdf
+ * already exists on disk by the time this renders - the run wrote it - so showing it costs
+ * one GET and no conversion.
+ */
 function TailoredCard({ row }: { row: TailoredSummary }) {
   return (
     <Card>
       <CardHeader
-        title={row.guardPassed ? 'Ready to download' : 'Tailoring was rejected'}
+        title={row.guardPassed ? 'Ready to send' : 'Tailoring was rejected'}
         subtitle={
           row.guardPassed
             ? `Written for ${row.title}${row.company ? ` at ${row.company}` : ''}. Every sentence in it traces back to a piece of your resume.`
@@ -396,6 +425,19 @@ function TailoredCard({ row }: { row: TailoredSummary }) {
       />
 
       <div className="space-y-3 px-5 pb-5">
+        {row.pdf ? (
+          <PdfFrame
+            path={`/api/me/tailor/${row.id}/pdf`}
+            title={`Resume for ${row.title} at ${row.company}`}
+            className="h-[calc(100vh-22rem)] min-h-[30rem] w-full"
+          />
+        ) : (
+          <p className="text-xs text-[var(--ink-muted)]">
+            LibreOffice could not produce a pdf on this machine, so there is
+            nothing to show here — the Word file above is the same document.
+          </p>
+        )}
+
         {row.counts && row.guardPassed && (
           <p className="text-xs text-[var(--ink-muted)]">
             {row.counts.selected} pieces used, {row.counts.rewrites} re-worded,{' '}
@@ -439,6 +481,7 @@ function HistoryRow({ row }: { row: TailoredSummary }) {
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const [open, setOpen] = useState(false);
+  const [showing, setShowing] = useState(false);
 
   const destroy = useMutation({
     mutationFn: () => api.del<void>(`/api/me/tailor/${row.id}`),
@@ -501,13 +544,35 @@ function HistoryRow({ row }: { row: TailoredSummary }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        className="mt-1.5 text-left text-xs text-[var(--ink-muted)] underline decoration-dotted"
-        onClick={() => setOpen(!open)}
-      >
-        {open ? 'Hide the description' : 'What it was written against'}
-      </button>
+      <div className="mt-1.5 flex flex-wrap items-center gap-3">
+        {row.pdf && (
+          <button
+            type="button"
+            className="text-left text-xs text-[var(--ink-secondary)] underline decoration-dotted"
+            onClick={() => setShowing(!showing)}
+          >
+            {showing ? 'Hide the resume' : 'Read the resume'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-left text-xs text-[var(--ink-muted)] underline decoration-dotted"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Hide the description' : 'What it was written against'}
+        </button>
+      </div>
+
+      {/* Fetched only once it is asked for. A history of forty runs would otherwise pull
+          forty pdfs into the tab to show four lines of text each. */}
+      {showing && row.pdf && (
+        <PdfFrame
+          path={`/api/me/tailor/${row.id}/pdf`}
+          title={`Resume for ${row.title} at ${row.company}`}
+          className="mt-2 h-[32rem] w-full"
+        />
+      )}
+
       {open && (
         <p className="mt-1.5 rounded-[var(--r-sm)] bg-[var(--surface-hover)] px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink-secondary)]">
           {row.jdPreview}

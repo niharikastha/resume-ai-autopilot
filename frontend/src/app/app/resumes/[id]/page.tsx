@@ -66,9 +66,19 @@ export default function ResumeEditorPage() {
   // employer and dates left as they are.
   const rows = atoms.data ?? [];
 
+  /**
+   * How many writes have succeeded, which is what tells the preview to render again.
+   *
+   * A counter rather than the atoms themselves: the document depends on the pieces, on
+   * their order and on the contact block, and a value derived from the query data would
+   * have to know which of those matter. "Something was saved" is the honest trigger.
+   */
+  const [version, setVersion] = useState(0);
+
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['me', 'resumes', id, 'atoms'] });
     void qc.invalidateQueries({ queryKey: ['me', 'resumes'] });
+    setVersion((at) => at + 1);
   };
 
   const update = useMutation({
@@ -136,13 +146,27 @@ export default function ResumeEditorPage() {
         </div>
       </PageHeader>
 
-      <div className="max-w-4xl space-y-4 px-4 pb-10 sm:px-6">
-        {(atoms.isLoading || resumes.isLoading) && <SkeletonCard rows={4} />}
-        {atoms.error && <ErrorNote message={(atoms.error as Error).message} />}
+      {/*
+        Two columns on a wide screen and the whole width of it, because the two halves of
+        this screen are "the pieces" and "the document" and they are read together: a
+        bullet that now wraps onto a third line is only visible in the second one. The
+        document column is pinned, so it stays in view however far down the pieces you are.
 
+        Below xl there is one column and the document is FIRST. On a phone the alternative
+        is scrolling past forty bullets to find out what they produced.
+      */}
+      <div className="grid grid-cols-1 items-start gap-4 px-4 pb-10 sm:px-6 xl:grid-cols-2">
         {rows.length > 0 && (
-          <>
-            <PreviewPane resumeId={id} />
+          <div className="min-w-0 xl:sticky xl:top-16 xl:order-2">
+            <PreviewPane resumeId={id} version={version} />
+          </div>
+        )}
+
+        <div className="min-w-0 space-y-4 xl:order-1">
+          {(atoms.isLoading || resumes.isLoading) && <SkeletonCard rows={4} />}
+          {atoms.error && <ErrorNote message={(atoms.error as Error).message} />}
+
+          {rows.length > 0 && (
             <SuggestionsPanel
               resumeId={id}
               busy={update.isPending}
@@ -162,10 +186,9 @@ export default function ResumeEditorPage() {
                 });
               }}
             />
-          </>
-        )}
+          )}
 
-        {atoms.data &&
+          {atoms.data &&
           KIND_ORDER.map((kind) => {
             const group = atoms.data.filter((a) => a.kind === kind);
             return (
@@ -218,12 +241,13 @@ export default function ResumeEditorPage() {
             );
           })}
 
-        <p className="px-1 text-xs leading-relaxed text-[var(--ink-muted)]">
-          The technologies listed under each piece are worked out from its words,
-          not typed in — they are the list a tailored version is allowed to
-          mention, so a tag your own sentence does not support is not something
-          this screen can add.
-        </p>
+          <p className="px-1 text-xs leading-relaxed text-[var(--ink-muted)]">
+            The technologies listed under each piece are worked out from its
+            words, not typed in — they are the list a tailored version is allowed
+            to mention, so a tag your own sentence does not support is not
+            something this screen can add.
+          </p>
+        </div>
       </div>
     </>
   );

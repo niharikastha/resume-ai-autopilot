@@ -2,7 +2,8 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { Download, Eye, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { PdfFrame } from '@/components/pdf-frame';
 import { useToast } from '@/components/toast';
 import { Button, Card, CardHeader, EmptyState } from '@/components/ui';
 import { api, type PreviewResult } from '@/lib/api';
@@ -18,40 +19,38 @@ import { saveBlob } from '@/lib/download';
  * second implementation of the template: right on the day it was written, and quietly
  * different from what the employer opens a month later.
  *
- * RENDERED ON A CLICK, never automatically. A render is a docx write plus a LibreOffice
- * conversion - a couple of seconds - and doing that after every keystroke in the editor
- * below would make typing feel broken. The button says what it costs.
+ * ON SCREEN THE WHOLE TIME, and re-rendered on every save. It was behind a button first,
+ * on the reasoning that a docx write plus a LibreOffice conversion is too slow to do
+ * often - and that was the wrong trade. Editing pieces without the document in view is
+ * editing blind: the candidate cannot see that a bullet now wraps onto a third line or
+ * that a section has pushed onto a second page, which are the only reasons to want a
+ * preview at all. `version` is bumped by the page after every successful write, and the
+ * conversion (about a second) happens while the reader is still looking at the piece they
+ * just changed.
+ *
+ * The button remains, because a render can fail on its own - LibreOffice absent, a file
+ * locked - and because "re-render this" is the obvious thing to reach for when the
+ * document on screen looks wrong.
  */
-export function PreviewPane({ resumeId }: { resumeId: string }) {
+export function PreviewPane({
+  resumeId,
+  /** Bumped by the editor whenever a piece is saved, added or removed. */
+  version = 0,
+}: {
+  resumeId: string;
+  version?: number;
+}) {
   const toast = useToast();
   const [result, setResult] = useState<PreviewResult | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
-
-  // The object URL holds the pdf in memory for as long as it exists, so the PREVIOUS one
-  // is released whenever this changes and the last one is released on unmount. Without
-  // this, re-rendering the preview ten times keeps ten pdfs of somebody's resume alive
-  // in the tab.
-  useEffect(() => {
-    if (!url) return;
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
+  /** Changes on every completed render, so PdfFrame re-fetches the overwritten file. */
+  const [stamp, setStamp] = useState(0);
 
   const render = useMutation({
-    mutationFn: async () => {
-      const rendered = await api.post<PreviewResult>(
-        `/api/me/resume-preview/${resumeId}`,
-      );
-      // Two requests on purpose: the POST does the slow work and says what came out, and
-      // the file is only fetched when there is one. A GET that rendered on the way past
-      // would hold the connection open for the whole conversion.
-      const pdf = rendered.pdf
-        ? await api.blob(`/api/me/resume-preview/${resumeId}/pdf`)
-        : null;
-      return { rendered, pdf };
-    },
-    onSuccess: ({ rendered, pdf }) => {
+    mutationFn: () =>
+      api.post<PreviewResult>(`/api/me/resume-preview/${resumeId}`),
+    onSuccess: (rendered) => {
       setResult(rendered);
-      setUrl(pdf ? URL.createObjectURL(pdf) : null);
+      setStamp(Date.now());
       if (!rendered.pdf) {
         toast.error(
           'The Word file was written but could not be converted to a pdf on this ' +
@@ -61,6 +60,19 @@ export function PreviewPane({ resumeId }: { resumeId: string }) {
     },
     onError: (err) => toast.error((err as Error).message),
   });
+
+  // What has already been asked for, so this renders once per change rather than once per
+  // React pass - and, in development, not twice for the same version when effects are
+  // deliberately run twice.
+  const asked = useRef<string | null>(null);
+  const { mutate } = render;
+
+  useEffect(() => {
+    const wanted = `${resumeId}:${version}`;
+    if (asked.current === wanted) return;
+    asked.current = wanted;
+    mutate();
+  }, [resumeId, version, mutate]);
 
   const download = useMutation({
     mutationFn: async (format: 'pdf' | 'docx') => {
@@ -76,69 +88,63 @@ export function PreviewPane({ resumeId }: { resumeId: string }) {
     <Card>
       <CardHeader
         title="How it looks"
-        subtitle="Rendered by the same code that writes the file an employer receives — this is the document, not an impression of it."
+        subtitle="Rendered by the same code that writes the file an employer receives — this is the document, not an impression of it. It re-renders every time you save a piece."
         action={
           <div className="flex items-center gap-2">
-            {result && (
-              <Button
-                size="sm"
-                icon={Download}
-                busy={download.isPending}
-                onClick={() => download.mutate('docx')}
-              >
-                Word file
-              </Button>
-            )}
             <Button
               size="sm"
-              variant={result ? 'secondary' : 'primary'}
-              icon={result ? RefreshCw : Eye}
+              icon={Download}
+              busy={download.isPending}
+              onClick={() => download.mutate('docx')}
+            >
+              Word file
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={RefreshCw}
               busy={render.isPending}
               onClick={() => render.mutate()}
-            >
-              {result ? 'Render again' : 'Show the document'}
-            </Button>
+              aria-label="Render the document again"
+            />
           </div>
         }
       />
 
-      {url ? (
-        <div className="px-5 pb-5">
-          <iframe
-            // `key` on the url so a new render replaces the frame rather than asking the
-            // pdf viewer to swap its source, which some builds of Chrome ignore.
-            key={url}
-            src={url}
-            title="Your resume as it will be sent"
-            className="h-[70vh] w-full rounded-[var(--r-sm)] border border-[var(--border)] bg-white"
+      <div className="px-5 pb-5">
+        {result && !result.pdf ? (
+          <EmptyState
+            icon={Eye}
+            title="Rendered, but there is no pdf to show"
+            detail="LibreOffice is not available here, so only the Word file was written. It is the same document — download it above."
           />
-          <p className="mt-2 text-xs text-[var(--ink-muted)]">
-            {result?.atomCount} piece{result?.atomCount === 1 ? '' : 's'},
-            rendered{' '}
-            {result
-              ? new Date(result.renderedAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-              : ''}
-            . Edit a piece below, then render again to see it change.
-          </p>
-        </div>
-      ) : (
-        <EmptyState
-          icon={Eye}
-          title={
-            result
-              ? 'Rendered, but there is no pdf to show'
-              : 'Nothing rendered yet'
-          }
-          detail={
-            result
-              ? 'LibreOffice is not available here, so only the Word file was written. It is the same document — download it above.'
-              : 'Takes a couple of seconds: the Word file is written and then converted, exactly as it is for a real application.'
-          }
-        />
-      )}
+        ) : (
+          <>
+            <PdfFrame
+              // Null until the first render has finished, or the GET would 404 on a file
+              // that does not exist yet.
+              path={stamp > 0 ? `/api/me/resume-preview/${resumeId}/pdf` : null}
+              reloadKey={stamp}
+              title="Your resume as it will be sent"
+              pendingLabel="Rendering the document"
+              className="h-[calc(100vh-17rem)] min-h-[32rem] w-full"
+            />
+            <p className="mt-2 text-xs text-[var(--ink-muted)]">
+              {render.isPending
+                ? 'Re-rendering…'
+                : result
+                  ? `${result.atomCount} piece${result.atomCount === 1 ? '' : 's'}, rendered ${new Date(
+                      result.renderedAt,
+                    ).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}.`
+                  : 'Rendering the document…'}
+            </p>
+          </>
+        )}
+      </div>
     </Card>
   );
 }
