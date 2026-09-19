@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Clock, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Clock, Plus, Trash2, Wand2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
@@ -25,6 +25,8 @@ import {
   KIND_ONE,
   KIND_ORDER,
 } from '../kinds';
+import { PreviewPane } from './preview';
+import { SuggestionsPanel } from './suggestions';
 
 /**
  * Editing the pieces of a saved resume.
@@ -58,6 +60,11 @@ export default function ResumeEditorPage() {
     queryKey: ['me', 'resumes', id, 'atoms'],
     queryFn: () => api.get<AtomRow[]>(`/api/me/resumes/${id}/atoms`),
   });
+
+  // Held in a const so the "use this wording" callback below can look a piece up: the
+  // suggestion arrives as an atom id and a new sentence, and the PATCH wants the piece's
+  // employer and dates left as they are.
+  const rows = atoms.data ?? [];
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['me', 'resumes', id, 'atoms'] });
@@ -116,6 +123,11 @@ export default function ResumeEditorPage() {
       >
         <div className="flex items-center gap-3">
           {resume?.isActive && <Badge tone="accent">In use</Badge>}
+          <Link href="/app/tailor">
+            <Button size="sm" icon={Wand2}>
+              Tailor to a job
+            </Button>
+          </Link>
           <Link href="/app/resumes">
             <Button size="sm" icon={ArrowLeft}>
               All resumes
@@ -127,6 +139,31 @@ export default function ResumeEditorPage() {
       <div className="max-w-4xl space-y-4 px-4 pb-10 sm:px-6">
         {(atoms.isLoading || resumes.isLoading) && <SkeletonCard rows={4} />}
         {atoms.error && <ErrorNote message={(atoms.error as Error).message} />}
+
+        {rows.length > 0 && (
+          <>
+            <PreviewPane resumeId={id} />
+            <SuggestionsPanel
+              resumeId={id}
+              busy={update.isPending}
+              onUse={({ atomId, text }) => {
+                const atom = rows.find((a) => a.id === atomId);
+                if (!atom) {
+                  toast.error(
+                    'That piece is not here any more — ask for suggestions again.',
+                  );
+                  return;
+                }
+                update.mutate({
+                  atomId,
+                  text,
+                  employer: atom.employer ?? null,
+                  dateRange: atom.dateRange ?? null,
+                });
+              }}
+            />
+          </>
+        )}
 
         {atoms.data &&
           KIND_ORDER.map((kind) => {

@@ -31,9 +31,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { canonicalise } from '../profile/tech';
 import {
   buildResume,
+  contactOf,
   resumeFilename,
   type DocumentAtom,
-  type ResumeContact,
 } from './resume.document';
 import {
   checkProvenance,
@@ -161,7 +161,7 @@ export class TailoringService {
     }
 
     const shared = await this.sharedPrefix(profile, atoms);
-    const contact = toContact(profile);
+    const contact = contactOf(profile);
     const documentAtoms: DocumentAtom[] = atoms.map((atom) => ({
       id: atom.id,
       kind: atom.kind,
@@ -534,24 +534,4 @@ export class TailoringService {
     });
     return variant.id;
   }
-}
-
-function toContact(profile: {
-  fullName: string;
-  email: string;
-  phone: string | null;
-  location: string | null;
-  linkedIn: string | null;
-  github: string | null;
-  portfolio: string | null;
-}): ResumeContact {
-  return {
-    fullName: profile.fullName,
-    email: profile.email,
-    phone: profile.phone,
-    location: profile.location,
-    linkedIn: profile.linkedIn,
-    github: profile.github,
-    portfolio: profile.portfolio,
-  };
 }

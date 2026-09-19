@@ -79,12 +79,20 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
-async function request<T>(
+/**
+ * One request, refreshed once if the session had expired, and thrown on failure.
+ *
+ * Split out of `request` so that a body which is NOT json - a rendered pdf, a docx -
+ * goes through exactly the same 401-and-retry and the same error decoding. A second
+ * fetch helper beside this one would be a second place for the refresh rule to live,
+ * and the one that got it wrong would be the rarely-used one.
+ */
+async function fetchOk(
   path: string,
   init?: RequestInit,
   /** Internal. Prevents a refresh loop: the retry does not get its own retry. */
   allowRefresh = true,
-): Promise<T> {
+): Promise<Response> {
   let res = await send(path, init);
 
   // A 401 means the access cookie is stale, which is the ordinary state of any
@@ -116,6 +124,11 @@ async function request<T>(
     throw new ApiError(res.status, message);
   }
 
+  return res;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchOk(path, init);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -152,6 +165,26 @@ export const api = {
     const form = new FormData();
     form.append(field, file);
     return request<T>(path, { method: 'POST', body: form });
+  },
+
+  /**
+   * A response body that is a FILE - a rendered pdf or a docx.
+   *
+   * WHY A FETCH AND NOT AN <iframe src> OR AN <a href> STRAIGHT AT THE API. Auth here
+   * is an HttpOnly cookie on the API's origin, and the browser is on a different one
+   * (3000 talking to 3100). A document loaded as a cross-site subresource is exactly
+   * the case SameSite cookies were introduced to stop, so the request arrives
+   * unauthenticated and the pdf frame shows a 401 page - which looks like a rendering
+   * bug rather than a session one. Fetching it here sends the cookie the way every
+   * other call does, and the caller turns the blob into a URL with
+   * `URL.createObjectURL`.
+   *
+   * REVOKE THAT URL. An object URL holds its blob for the lifetime of the document, so
+   * a preview re-rendered twenty times leaks twenty pdfs unless the old one is released.
+   */
+  blob: async (path: string): Promise<Blob> => {
+    const res = await fetchOk(path);
+    return res.blob();
   },
 };
 
@@ -782,4 +815,95 @@ export interface DigestSendResult {
   email: 'sent' | 'skipped' | 'failed';
   telegram: 'sent' | 'skipped' | 'failed';
   notes: string[];
+}
+
+// --- the resume studio ------------------------------------------------------
+
+/**
+ * What POST /api/me/resume-preview/:id reports after rendering.
+ *
+ * The document itself is fetched separately, as a blob - see `api.blob`. This is the
+ * receipt: it says a render happened, when, and whether a pdf came out of it.
+ *
+ * `pdf: false` is not an error. The server writes the docx with the `docx` library and
+ * converts it with LibreOffice, and a machine without LibreOffice produces a correct
+ * Word file and no pdf.
+ */
+export interface PreviewResult {
+  resumeId: string;
+  label: string;
+  atomCount: number;
+  headline: string | null;
+  pdf: boolean;
+  renderedAt: string;
+  bytes: number | null;
+}
+
+/**
+ * One AI suggestion about one piece of the resume.
+ *
+ * `kind` is the whole distinction to show on screen:
+ *
+ *   rewrite  Replacement wording the server has already put through the provenance
+ *            guard against the piece it cites. Safe to offer as a one-click swap -
+ *            which still opens the editor rather than saving, because a resume is
+ *            never changed without the candidate reading the change.
+ *   advice   A sentence addressed to the candidate, about a fact the resume does not
+ *            contain. NOT guarded, because naming something absent is the point of it,
+ *            and NOT applicable - there is nothing to apply.
+ */
+export interface ResumeSuggestion {
+  atomId: string;
+  kind: 'rewrite' | 'advice';
+  /** The piece as it stands today, so the screen can show both sides. */
+  current: string;
+  text: string;
+  why: string;
+}
+
+export interface SuggestionsResult {
+  resumeId: string;
+  suggestions: ResumeSuggestion[];
+  overall: string | null;
+  /**
+   * Rewrites the guard threw out before they were sent.
+   *
+   * Shown rather than hidden: "nothing to suggest" and "everything suggested was
+   * fabricated" are different facts, and only the second one means the answer should be
+   * distrusted.
+   */
+  rejected: number;
+  provider: string;
+  model: string;
+}
+
+/**
+ * One tailored resume in the history.
+ *
+ * `guardPassed: false` means a tailored version was written and thrown away for
+ * claiming something the pieces do not support - and the file offered for download is
+ * the BASE resume, not the rejected one. `violations` says what went wrong, in the
+ * server's own words.
+ */
+export interface TailoredSummary {
+  id: string;
+  resumeId: string;
+  /** Null when the description was pasted in rather than picked from a posting. */
+  jobId: string | null;
+  title: string;
+  company: string;
+  jdPreview: string;
+  guardPassed: boolean;
+  violations: string[];
+  counts: {
+    selected: number;
+    rewrites: number;
+    numbersChecked: number;
+    techTokensChecked: number;
+  } | null;
+  coverLetter: string | null;
+  docx: boolean;
+  pdf: boolean;
+  createdAt: string;
+  model: string | null;
 }

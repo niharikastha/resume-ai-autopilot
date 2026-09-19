@@ -91,6 +91,7 @@ model User {
   digests         DailyDigest[]
   jobPreference   JobPreference?
   settingsTouched AppSetting[]
+  tailored        TailoredResume[]
 
   @@index([role])
   /// The admin approval queue: pending accounts, oldest first.
@@ -372,9 +373,10 @@ model CandidateProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   atoms          ProfileAtom[]
   resumeVariants ResumeVariant[]
+  tailored       TailoredResume[]
 
   @@unique([userId, label])
   @@index([userId])
@@ -415,10 +417,10 @@ model ProfileAtom {
   tech    String[]
   metrics String[]
 
-  employer  String?
-  dateRange String?
-  link      String?
-  ctc       String?
+  employer     String?
+  dateRange    String?
+  link         String?
+  ctc          String?
   degree       String?
   fieldOfStudy String?
   score        String?
@@ -663,10 +665,11 @@ model JobPosting {
   lastSeenAt  DateTime  @updatedAt
   closedAt    DateTime?
 
-  company        Company?        @relation(fields: [companyId], references: [id])
+  company        Company?         @relation(fields: [companyId], references: [id])
   matchScores    MatchScore[]
   applications   Application[]
   resumeVariants ResumeVariant[]
+  tailored       TailoredResume[]
 
   @@unique([source, sourceJobId])
   @@index([contentHash])
@@ -800,6 +803,67 @@ model ResumeVariant {
   @@index([jobId])
   @@index([guardPassed])
   @@map("resume_variants")
+}
+
+/// A resume the CANDIDATE asked for, against a JD they chose.
+///
+/// A SEPARATE TABLE FROM ResumeVariant, which is the pipeline's. The two look
+/// alike and are not the same thing, and the difference is `jobId`: a variant
+/// belongs to a posting this system discovered and scored, and the apply flow,
+/// the digest's drift report and `Application.resumeVariantId` all assume that
+/// posting exists. A pasted job description has no posting. Making
+/// `ResumeVariant.jobId` nullable to fit would have put a row with no job into
+/// every one of those queries, and each would have had to learn a state it has
+/// no use for. So the lane a person drives by hand is its own table.
+///
+/// WHAT IS THE SAME, deliberately: the atoms it draws from, the prompt, the
+/// provenance guard and the renderer. There is no second template and no second
+/// set of rules about what may be claimed - only a different way of choosing the
+/// job description.
+model TailoredResume {
+  id        String  @id @default(uuid())
+  userId    String
+  profileId String
+  /// Set when the JD came from a discovered posting, null when it was pasted in.
+  /// Null on purpose rather than a placeholder posting: a synthetic row in
+  /// job_postings would be scored, matched and shown as a job to apply to.
+  jobId     String?
+
+  /// What the resume was aimed at. Copied rather than joined even when `jobId`
+  /// is set, because a posting is edited and taken down by its employer and this
+  /// row has to keep saying what it was tailored for.
+  title   String
+  company String
+  /// The description as it was used. Kept so a re-run is honest about what the
+  /// model actually read, and so the list can show what a pasted JD was.
+  jdText  String @db.Text
+
+  /// { selectedAtomIds[], rewrites: [{atomId, text}], headline }
+  atomSelection Json
+  coverLetter   String? @db.Text
+  docxPath      String?
+  pdfPath       String?
+
+  /// Same guard, same report shape as ResumeVariant. A FAILED row is still
+  /// written and still points at rendered files - they hold the BASE resume,
+  /// which is what the candidate gets when a rewrite could not be trusted.
+  provenanceReport Json
+  guardPassed      Boolean
+
+  llmProvider String?
+  model       String?
+
+  createdAt DateTime @default(now())
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CandidateProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  job     JobPosting?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  /// The list on the tailor screen: this candidate's, newest first.
+  @@index([userId, createdAt])
+  @@index([profileId])
+  @@index([jobId])
+  @@map("tailored_resumes")
 }
 
 // ---------------------------------------------------------------------------

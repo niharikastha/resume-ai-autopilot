@@ -201,7 +201,8 @@ export function buildResume(
     // Stable within equal ranks, which matters for the base resume where every rank
     // is RANK_LAST and the profile's own bullet order must survive untouched.
     block.bullets.sort(
-      (a, b) => (rank.get(a.atomId) ?? RANK_LAST) - (rank.get(b.atomId) ?? RANK_LAST),
+      (a, b) =>
+        (rank.get(a.atomId) ?? RANK_LAST) - (rank.get(b.atomId) ?? RANK_LAST),
     );
   }
 
@@ -217,9 +218,30 @@ export function buildResume(
       // becoming a gap in the candidate's timeline.
       (block) =>
         block.bullets.length > 0 ||
-        (block.atomId !== null && (included === null || included.has(block.atomId))),
+        (block.atomId !== null &&
+          (included === null || included.has(block.atomId))),
     ),
     tailored: tailoring !== null,
+  };
+}
+
+/**
+ * The contact block, from the profile row.
+ *
+ * Here rather than in one service, because three callers now need it - the pipeline's
+ * tailoring run, the on-demand one and the editor's preview - and a second copy is a
+ * resume that silently loses its GitHub link on one of the three paths. Structural
+ * typing means it takes any row selected with these columns.
+ */
+export function contactOf(profile: ResumeContact): ResumeContact {
+  return {
+    fullName: profile.fullName,
+    email: profile.email,
+    phone: profile.phone,
+    location: profile.location,
+    linkedIn: profile.linkedIn,
+    github: profile.github,
+    portfolio: profile.portfolio,
   };
 }
 

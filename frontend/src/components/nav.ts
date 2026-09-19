@@ -11,6 +11,7 @@ import {
   Target,
   UserRound,
   Users,
+  Wand2,
   type LucideIcon,
 } from 'lucide-react';
 import type { Route } from 'next';
@@ -68,6 +69,12 @@ export const CANDIDATE_NAV: NavItem[] = [
     label: 'Resumes',
     icon: FileText,
     hint: 'Upload, choose the one in use, edit its pieces',
+  },
+  {
+    href: '/app/tailor',
+    label: 'Tailor to a job',
+    icon: Wand2,
+    hint: 'A job description in, a resume for it out — same template',
   },
   {
     href: '/app/profile',
