@@ -41,6 +41,7 @@ import {
   type ProvenanceReport,
 } from './provenance.guard';
 import { renderResume } from './resume.render';
+import { templateWriter } from './resume.templates';
 
 /**
  * The verdicts worth spending a deep-tier call on.
@@ -252,6 +253,10 @@ export class TailoringService {
           document,
           this.config.getOrThrow<string>('RESUME_OUTPUT_DIR'),
           basename,
+          // The resume's own template, chosen on the editing screen. The pipeline reads
+          // the same column the preview writes, so what a candidate approved on screen
+          // is what goes out unattended.
+          { write: templateWriter(profile.resumeTemplate) },
         );
         docxPath = rendered.docxPath;
         pdfPath = rendered.pdfPath;

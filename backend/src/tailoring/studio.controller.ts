@@ -34,11 +34,13 @@ import {
   Query,
   StreamableFile,
 } from '@nestjs/common';
+import { ResumeTemplate } from '@prisma/client';
 import { createReadStream } from 'fs';
 import { z } from 'zod';
 import { CurrentUser, type SessionUser } from '../auth/auth.constants';
 import { OnDemandTailoringService } from './on-demand.service';
 import { PreviewService } from './preview.service';
+import { TEMPLATE_CHOICES, type TemplateChoice } from './resume.templates';
 import { SuggestionsService } from './suggestions.service';
 
 /** Zod at the HTTP boundary, same as everywhere else in this API. */
@@ -53,6 +55,19 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 }
 
 const format = z.enum(['pdf', 'docx']);
+
+/**
+ * A template name, validated against the enum Prisma generated.
+ *
+ * `z.nativeEnum` rather than a hand-written list: a template added to the schema and
+ * forgotten here would be a value the API rejects for a document it can render.
+ */
+const templateBody = z.object({
+  template: z.nativeEnum(ResumeTemplate).optional(),
+});
+
+/** The same, required - for the routes whose whole purpose is to change it. */
+const retypesetBody = z.object({ template: z.nativeEnum(ResumeTemplate) });
 
 /** What a browser does with each. A pdf is for looking at; a docx is for keeping. */
 const CONTENT_TYPE = {
@@ -78,6 +93,22 @@ export class ResumePreviewController {
   constructor(private readonly preview: PreviewService) {}
 
   /**
+   * The templates that can be written, with the copy describing each.
+   *
+   * A ROUTE OF ITS OWN because the tailor screen needs the list and does not render a
+   * preview to get it. Hardcoding the list in the frontend instead would let it offer a
+   * template the renderer has no writer for, which is a picker that produces the wrong
+   * document; `TEMPLATE_CHOICES` sits beside that writer table.
+   *
+   * Declared before `:id/:format` - `templates` is one segment, so it cannot be read as
+   * an id there, but it would be read as one by a future single-segment GET.
+   */
+  @Get('templates')
+  templates(): readonly TemplateChoice[] {
+    return TEMPLATE_CHOICES;
+  }
+
+  /**
    * Renders the resume and says what came out. POST because it writes files.
    *
    * Separate from the download so the slow part is one request: LibreOffice takes
@@ -88,8 +119,13 @@ export class ResumePreviewController {
   render(
     @CurrentUser() user: SessionUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
   ) {
-    return this.preview.render(user.id, id);
+    // An absent template means "render it in whatever this resume is set to", which is
+    // what an ordinary re-render after an edit wants. A present one is the picker, and
+    // it is saved - see PreviewService.render.
+    const { template } = parse(templateBody, body ?? {});
+    return this.preview.render(user.id, id, template);
   }
 
   @Get(':id/:format')
@@ -161,6 +197,60 @@ export class TailorController {
   @Get()
   list(@CurrentUser() user: SessionUser, @Query() query: unknown) {
     return this.tailored.list(user.id, parse(listQuery, query).resumeId);
+  }
+
+  /**
+   * What tailoring changed, against the candidate's own words.
+   *
+   * DECLARED BEFORE `:id/:format`, which would otherwise match this path and reject
+   * `changes` as a format. Nest matches routes in declaration order, so this is load
+   * order and not a coincidence - moving it below would 400 a route that exists.
+   */
+  @Get(':id/changes')
+  changes(
+    @CurrentUser() user: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tailored.changes(user.id, id);
+  }
+
+  /** The same run in another template. POST because it rewrites the files. */
+  @Post(':id/retypeset')
+  retypeset(
+    @CurrentUser() user: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
+    const { template } = parse(retypesetBody, body);
+    return this.tailored.retypeset(user.id, id, template);
+  }
+
+  /**
+   * Renders the marked-up copy. Split from the GET below for the same reason the
+   * preview's render is split from its download: LibreOffice takes seconds.
+   */
+  @Post(':id/marked')
+  mark(
+    @CurrentUser() user: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tailored.markReview(user.id, id);
+  }
+
+  /**
+   * The marked-up copy, inline.
+   *
+   * PDF ONLY, AND NO ATTACHMENT. This one is for reading on the screen beside the real
+   * document - see `OnDemandTailoringService.markReview`. There is deliberately no route
+   * that hands the candidate a highlighted Word file to send.
+   */
+  @Get(':id/marked/pdf')
+  async marked(
+    @CurrentUser() user: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    const file = await this.tailored.reviewFile(user.id, id);
+    return stream(file, 'pdf', true);
   }
 
   @Get(':id/:format')

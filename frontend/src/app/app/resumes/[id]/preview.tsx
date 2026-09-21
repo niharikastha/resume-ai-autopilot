@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PdfFrame } from '@/components/pdf-frame';
 import { useToast } from '@/components/toast';
 import { Button, Card, CardHeader, EmptyState } from '@/components/ui';
-import { api, type PreviewResult } from '@/lib/api';
+import { api, type PreviewResult, type ResumeTemplate } from '@/lib/api';
 import { saveBlob } from '@/lib/download';
 
 /**
@@ -31,6 +31,13 @@ import { saveBlob } from '@/lib/download';
  * The button remains, because a render can fail on its own - LibreOffice absent, a file
  * locked - and because "re-render this" is the obvious thing to reach for when the
  * document on screen looks wrong.
+ *
+ * THE TEMPLATE PICKER SAVES. Choosing one re-renders here AND writes the choice to the
+ * resume, so the pipeline and every tailored run go out in it. That is the point of
+ * choosing; a picker that only changed this pane would be a picker that lies about what
+ * an employer receives. The list comes from the server rather than from a constant here,
+ * because a template this screen offers and the renderer does not have is a picker that
+ * produces the wrong document.
  */
 export function PreviewPane({
   resumeId,
@@ -46,8 +53,12 @@ export function PreviewPane({
   const [stamp, setStamp] = useState(0);
 
   const render = useMutation({
-    mutationFn: () =>
-      api.post<PreviewResult>(`/api/me/resume-preview/${resumeId}`),
+    // Undefined means "whatever this resume is set to", which is what a re-render after
+    // an edit wants. A template means the picker was used, and the server saves it.
+    mutationFn: (template: ResumeTemplate | undefined) =>
+      api.post<PreviewResult>(`/api/me/resume-preview/${resumeId}`, {
+        template,
+      }),
     onSuccess: (rendered) => {
       setResult(rendered);
       setStamp(Date.now());
@@ -71,7 +82,7 @@ export function PreviewPane({
     const wanted = `${resumeId}:${version}`;
     if (asked.current === wanted) return;
     asked.current = wanted;
-    mutate();
+    mutate(undefined);
   }, [resumeId, version, mutate]);
 
   const download = useMutation({
@@ -79,10 +90,15 @@ export function PreviewPane({
       const blob = await api.blob(
         `/api/me/resume-preview/${resumeId}/${format}`,
       );
-      saveBlob(blob, `${result?.label ?? 'resume'}.${format}`);
+      saveBlob(
+        blob,
+        `${result?.label ?? 'resume'}-${(result?.template ?? 'classic').toLowerCase()}.${format}`,
+      );
     },
     onError: (err) => toast.error((err as Error).message),
   });
+
+  const chosen = result?.templates.find((t) => t.id === result.template);
 
   return (
     <Card>
@@ -91,6 +107,17 @@ export function PreviewPane({
         subtitle="Rendered by the same code that writes the file an employer receives — this is the document, not an impression of it. It re-renders every time you save a piece."
         action={
           <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Download}
+              busy={download.isPending}
+              // Nothing to hand over until a render has produced one.
+              disabled={!result?.pdf}
+              onClick={() => download.mutate('pdf')}
+            >
+              PDF
+            </Button>
             <Button
               size="sm"
               icon={Download}
@@ -104,12 +131,40 @@ export function PreviewPane({
               variant="secondary"
               icon={RefreshCw}
               busy={render.isPending}
-              onClick={() => render.mutate()}
+              onClick={() => render.mutate(undefined)}
               aria-label="Render the document again"
             />
           </div>
         }
       />
+
+      {result && (
+        <div className="border-t border-[var(--border)] px-5 py-3">
+          <div
+            className="flex flex-wrap items-center gap-1 rounded-[var(--r-full)] bg-[var(--surface-hover)] p-1"
+            role="group"
+            aria-label="Resume template"
+          >
+            {result.templates.map((template) => (
+              <Button
+                key={template.id}
+                size="sm"
+                variant={template.id === result.template ? 'primary' : 'ghost'}
+                busy={render.isPending && render.variables === template.id}
+                aria-pressed={template.id === result.template}
+                onClick={() => render.mutate(template.id)}
+              >
+                {template.label}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--ink-muted)]">
+            {chosen?.detail} Every template prints the same words in the same
+            order — only the typesetting changes, and the one you pick here is
+            the one your applications go out in.
+          </p>
+        </div>
+      )}
 
       <div className="px-5 pb-5">
         {result && !result.pdf ? (

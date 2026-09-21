@@ -14,11 +14,20 @@
  * calls, with `tailoring` null, which is precisely the base resume. Nothing in
  * resume.render.ts is touched or duplicated. What the preview shows is the document.
  *
- * ONE FILE PER RESUME, OVERWRITTEN. The preview is derived state, regenerable from the
- * atoms in a second, and a directory that accumulated one pdf per click would be a
- * disk-space leak holding the candidate's phone number and address. It lives under
- * `<RESUME_OUTPUT_DIR>/previews/`, which is gitignored along with the rest of that
- * directory.
+ * ONE FILE PER RESUME AND TEMPLATE, OVERWRITTEN. The preview is derived state,
+ * regenerable from the atoms in a second, and a directory that accumulated one pdf per
+ * click would be a disk-space leak holding the candidate's phone number and address. It
+ * lives under `<RESUME_OUTPUT_DIR>/previews/`, which is gitignored along with the rest
+ * of that directory. The template is in the NAME rather than overwriting one file,
+ * because the download route does not render: a candidate who switches template and
+ * clicks Word would otherwise be handed the previous template's document, which looks
+ * exactly like a template that does not work.
+ *
+ * CHOOSING A TEMPLATE HERE SAVES IT ON THE RESUME. Not a preview-only setting: the
+ * point of choosing is that applications go out in it, so the choice is written to
+ * `CandidateProfile.resumeTemplate` and the pipeline, the on-demand runs and this
+ * preview all read the same column. A picker that only changed the preview would be a
+ * picker that lies about what gets sent.
  *
  * A MISSING PDF IS REPORTED, NOT THROWN. `renderResume` returns a null pdfPath when
  * LibreOffice is absent - see its header - and the docx is still correct and still
@@ -27,11 +36,18 @@
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ResumeTemplate } from '@prisma/client';
 import { stat } from 'fs/promises';
 import { join, resolve } from 'path';
+import { PrismaService } from '../prisma/prisma.service';
 import { buildResume } from './resume.document';
 import { renderResume } from './resume.render';
 import { ResumeSourceService } from './resume.source';
+import {
+  templateWriter,
+  TEMPLATE_CHOICES,
+  type TemplateChoice,
+} from './resume.templates';
 
 export interface PreviewResult {
   resumeId: string;
@@ -39,6 +55,10 @@ export interface PreviewResult {
   /** Pieces that went into it, so the screen can say what it is showing. */
   atomCount: number;
   headline: string | null;
+  /** The template this was rendered in, which is now the resume's. */
+  template: ResumeTemplate;
+  /** Every template on offer, so the picker cannot list one that does not exist. */
+  templates: readonly TemplateChoice[];
   /** False when LibreOffice could not be run. The docx is still there. */
   pdf: boolean;
   renderedAt: string;
@@ -53,6 +73,7 @@ export class PreviewService {
   private readonly logger = new Logger(PreviewService.name);
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly source: ResumeSourceService,
     private readonly config: ConfigService,
   ) {}
@@ -65,9 +86,30 @@ export class PreviewService {
    * document, and a preview that was right ten seconds ago is exactly the preview that
    * misleads. Rendering costs a docx write plus one LibreOffice conversion, and the
    * screen asks for it on a click.
+   *
+   * `template` given means the candidate just chose one, so it is SAVED before the
+   * render. Saved first on purpose: if the LibreOffice conversion fails the choice is
+   * still theirs and the docx is still in it, and the alternative - save only on a
+   * successful render - would silently ignore the picker on a machine with no
+   * LibreOffice.
    */
-  async render(userId: string, resumeId?: string): Promise<PreviewResult> {
+  async render(
+    userId: string,
+    resumeId?: string,
+    template?: ResumeTemplate,
+  ): Promise<PreviewResult> {
     const source = await this.source.load(userId, resumeId);
+
+    // Scoped by userId as well as id, though `load` has already proved ownership -
+    // this is the one write on this path, and a where clause that cannot address
+    // another account's row is cheaper than remembering why it does not need to.
+    if (template && template !== source.profile.resumeTemplate) {
+      await this.prisma.candidateProfile.updateMany({
+        where: { id: source.profile.id, userId },
+        data: { resumeTemplate: template },
+      });
+    }
+    const chosen = template ?? source.profile.resumeTemplate;
 
     const document = buildResume(
       source.documentAtoms,
@@ -81,7 +123,8 @@ export class PreviewService {
     const rendered = await renderResume(
       document,
       this.dir(),
-      basenameFor(source.profile.id),
+      basenameFor(source.profile.id, chosen),
+      { write: templateWriter(chosen) },
     );
 
     const size = rendered.pdfPath
@@ -103,6 +146,8 @@ export class PreviewService {
       label: source.profile.label,
       atomCount: source.documentAtoms.length,
       headline: source.headline,
+      template: chosen,
+      templates: TEMPLATE_CHOICES,
       pdf: rendered.pdfPath !== null,
       renderedAt: new Date().toISOString(),
       bytes: size,
@@ -128,7 +173,7 @@ export class PreviewService {
     const source = await this.source.load(userId, resumeId);
     const path = join(
       this.dir(),
-      `${basenameFor(source.profile.id)}.${format}`,
+      `${basenameFor(source.profile.id, source.profile.resumeTemplate)}.${format}`,
     );
 
     const exists = await stat(path).then(
@@ -145,12 +190,16 @@ export class PreviewService {
     }
 
     // What the browser saves it as. The internal name is a uuid, which is right for
-    // the disk and useless in a downloads folder.
+    // the disk and useless in a downloads folder. The template is in it because the
+    // reason to download two of these is to compare them side by side.
     return {
       path,
       filename: `${source.profile.fullName.replace(/[^\w-]+/g, '_')}_${
         source.profile.label
-      }.${format}`.replace(/_+/g, '_'),
+      }_${source.profile.resumeTemplate.toLowerCase()}.${format}`.replace(
+        /_+/g,
+        '_',
+      ),
     };
   }
 
@@ -163,7 +212,11 @@ export class PreviewService {
   }
 }
 
-/** One stable name per resume, so a re-render replaces rather than accumulates. */
-function basenameFor(profileId: string): string {
-  return `preview-${profileId}`;
+/**
+ * One stable name per resume and template, so a re-render replaces rather than
+ * accumulates and a download after a template switch is not the previous template's
+ * file - see the header.
+ */
+function basenameFor(profileId: string, template: ResumeTemplate): string {
+  return `preview-${profileId}-${template.toLowerCase()}`;
 }

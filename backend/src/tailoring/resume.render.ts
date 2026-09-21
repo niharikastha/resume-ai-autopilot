@@ -25,6 +25,15 @@
  * JS pdf library: the docx is the artifact the ATS ingests and the pdf is what a
  * human reads, so they must be the same document rendered once, not two documents
  * generated from one model by two code paths that can disagree.
+ *
+ * THIS FILE IS THE CLASSIC TEMPLATE, and it must keep rendering what it rendered
+ * before other templates existed - resumes already sent to employers came out of it.
+ * The alternatives live in resume.templates.ts, which reuses `layout` below so that
+ * no template gets to decide what appears or in what order; a template chooses
+ * margins, sizes, weights and rules and nothing else. `renderResume` takes the
+ * writer as an argument rather than looking a template up, which is what keeps the
+ * dependency one-way and keeps the LibreOffice call in one place: a second copy of
+ * `toPdf` per template is the drift this file's header is about.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
@@ -35,6 +44,7 @@ import {
   BorderStyle,
   Document,
   HeadingLevel,
+  HighlightColor,
   LevelFormat,
   Packer,
   Paragraph,
@@ -50,6 +60,29 @@ const BULLETS = 'resume-bullets';
 const FONT = 'Calibri';
 /** Half-points, which is how docx sizes text. 22 = 11pt. */
 const BODY = 22;
+
+/**
+ * What every template's writer is given.
+ *
+ * `mark` is the review copy: the lines a model rewrote come out highlighted, so a
+ * candidate can see on the document itself which sentences are no longer their own
+ * words. It is OFF for everything that gets sent, and the caller that turns it on
+ * writes to its own directory - see `OnDemandTailoringService.markReview`.
+ */
+export interface WriterOptions {
+  /** Highlight the rewritten lines. Never true for a document an employer receives. */
+  mark?: boolean;
+}
+
+/** A template: the same ResumeDocument, typeset differently. */
+export type ResumeWriter = (
+  doc: ResumeDocument,
+  options?: WriterOptions,
+) => Document;
+
+/** The one highlight, so a review copy marks every changed line the same way. */
+export const MARK: (typeof HighlightColor)[keyof typeof HighlightColor] =
+  HighlightColor.YELLOW;
 
 function contactLine(doc: ResumeDocument): string {
   // Joined with a bullet separator rather than laid out in a table, for the reason
@@ -100,11 +133,18 @@ function heading(text: string): Paragraph {
   });
 }
 
-function bullet(text: string): Paragraph {
+function bullet(text: string, marked: boolean): Paragraph {
   return new Paragraph({
     numbering: { reference: BULLETS, level: 0 },
     spacing: { after: 40 },
-    children: [new TextRun({ text, size: BODY, font: FONT })],
+    children: [
+      new TextRun({
+        text,
+        size: BODY,
+        font: FONT,
+        ...(marked ? { highlight: MARK } : {}),
+      }),
+    ],
   });
 }
 
@@ -158,10 +198,17 @@ function roleHeading(
   title: string,
   employer: string | null,
   dateRange: string | null,
+  marked = false,
 ): Paragraph {
   const left = roleHeadingText(title, employer);
   const children = [
-    new TextRun({ text: left, bold: true, size: BODY, font: FONT }),
+    new TextRun({
+      text: left,
+      bold: true,
+      size: BODY,
+      font: FONT,
+      ...(marked ? { highlight: MARK } : {}),
+    }),
   ];
   if (dateRange) {
     children.push(
@@ -189,10 +236,19 @@ function roleHeading(
  * `layout` makes the decisions and returns plain data, and `paragraphFor` turns each
  * item into the one paragraph it corresponds to. Nothing in the second step chooses
  * anything.
+ *
+ * IT IS ALSO WHAT EVERY OTHER TEMPLATE IS BUILT ON. resume.templates.ts calls
+ * `layout` and writes these blocks its own way, so "which section a line lands in"
+ * is decided once for every template there will ever be.
+ *
+ * `marked` travels with the block rather than being looked up later, because by the
+ * time a writer holds a Paragraph there is nothing left to ask: `ResumeBullet.rewritten`
+ * is the only record that a sentence came from the model rather than from the
+ * candidate, and it is on the document, not on the page.
  */
 export type ResumeBlock =
   | { kind: 'name'; text: string }
-  | { kind: 'headline'; text: string }
+  | { kind: 'headline'; text: string; marked?: boolean }
   | { kind: 'contact'; text: string }
   | { kind: 'section'; text: string }
   | {
@@ -200,15 +256,26 @@ export type ResumeBlock =
       title: string;
       employer: string | null;
       dateRange: string | null;
+      marked?: boolean;
     }
-  | { kind: 'line'; text: string }
-  | { kind: 'bullet'; text: string };
+  | { kind: 'line'; text: string; marked?: boolean }
+  | { kind: 'bullet'; text: string; marked?: boolean };
 
 /** Every line of the resume, in the order it prints. Exported for the tests. */
 export function layout(doc: ResumeDocument): ResumeBlock[] {
   const blocks: ResumeBlock[] = [{ kind: 'name', text: doc.contact.fullName }];
 
-  if (doc.headline) blocks.push({ kind: 'headline', text: doc.headline });
+  if (doc.headline) {
+    // On a tailored document the headline is the model's sentence - `buildResume`
+    // only falls back to the profile's own when there is no tailoring at all - so
+    // `tailored` is exactly the condition under which this line is not the
+    // candidate's wording.
+    blocks.push({
+      kind: 'headline',
+      text: doc.headline,
+      marked: doc.tailored,
+    });
+  }
   blocks.push({ kind: 'contact', text: contactLine(doc) });
 
   if (doc.skills.length > 0) {
@@ -216,7 +283,7 @@ export function layout(doc: ResumeDocument): ResumeBlock[] {
     // As plain lines, not bullets: a skills line is already a comma-separated list,
     // and bulleting each one produces a page of single-item bullets.
     for (const skill of doc.skills) {
-      blocks.push({ kind: 'line', text: skill.text });
+      blocks.push({ kind: 'line', text: skill.text, marked: skill.rewritten });
     }
   }
 
@@ -242,10 +309,15 @@ export function layout(doc: ResumeDocument): ResumeBlock[] {
           title: block.title,
           employer: block.employer,
           dateRange: block.dateRange,
+          marked: block.titleRewritten,
         });
       }
       for (const item of block.bullets) {
-        blocks.push({ kind: 'bullet', text: item.text });
+        blocks.push({
+          kind: 'bullet',
+          text: item.text,
+          marked: item.rewritten,
+        });
       }
     }
   }
@@ -261,6 +333,7 @@ export function layout(doc: ResumeDocument): ResumeBlock[] {
         title: item.text,
         employer: item.institution,
         dateRange: item.dateRange,
+        marked: item.rewritten,
       });
     }
   }
@@ -274,7 +347,11 @@ export function layout(doc: ResumeDocument): ResumeBlock[] {
     blocks.push({ kind: 'section', text: 'Certifications & Activities' });
     for (const block of loose) {
       for (const item of block.bullets) {
-        blocks.push({ kind: 'bullet', text: item.text });
+        blocks.push({
+          kind: 'bullet',
+          text: item.text,
+          marked: item.rewritten,
+        });
       }
     }
   }
@@ -282,8 +359,21 @@ export function layout(doc: ResumeDocument): ResumeBlock[] {
   return blocks;
 }
 
+/**
+ * Whether this block holds text a model wrote.
+ *
+ * A function rather than a field on every block kind: a section heading and the contact
+ * line cannot be rewritten - there is no atom behind either - and giving them a `marked`
+ * property would invite a writer to highlight one.
+ */
+export function isMarked(block: ResumeBlock): boolean {
+  return 'marked' in block && block.marked === true;
+}
+
 /** One block as one paragraph. No decisions here - see ResumeBlock. */
-function paragraphFor(block: ResumeBlock): Paragraph {
+function paragraphFor(block: ResumeBlock, mark: boolean): Paragraph {
+  const marked = mark && isMarked(block);
+
   switch (block.kind) {
     case 'name':
       return new Paragraph({
@@ -297,7 +387,14 @@ function paragraphFor(block: ResumeBlock): Paragraph {
       return new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 40 },
-        children: [new TextRun({ text: block.text, size: BODY, font: FONT })],
+        children: [
+          new TextRun({
+            text: block.text,
+            size: BODY,
+            font: FONT,
+            ...(marked ? { highlight: MARK } : {}),
+          }),
+        ],
       });
     case 'contact':
       return new Paragraph({
@@ -308,20 +405,33 @@ function paragraphFor(block: ResumeBlock): Paragraph {
     case 'section':
       return heading(block.text);
     case 'entry':
-      return roleHeading(block.title, block.employer, block.dateRange);
+      return roleHeading(block.title, block.employer, block.dateRange, marked);
     case 'line':
       return new Paragraph({
         spacing: { after: 40 },
-        children: [new TextRun({ text: block.text, size: BODY, font: FONT })],
+        children: [
+          new TextRun({
+            text: block.text,
+            size: BODY,
+            font: FONT,
+            ...(marked ? { highlight: MARK } : {}),
+          }),
+        ],
       });
     case 'bullet':
-      return bullet(block.text);
+      return bullet(block.text, marked);
   }
 }
 
-/** Builds the docx in memory. Exported for the renderer's tests. */
-export function toDocx(doc: ResumeDocument): Document {
-  const body = layout(doc).map(paragraphFor);
+/**
+ * Builds the docx in memory. Exported for the renderer's tests.
+ *
+ * This is the CLASSIC template. `options.mark` is off by default, so the document
+ * this produces with no options is the document this file has always produced.
+ */
+export const toDocx: ResumeWriter = (doc, options) => {
+  const mark = options?.mark === true;
+  const body = layout(doc).map((block) => paragraphFor(block, mark));
 
   return new Document({
     // Set at the document level so nothing depends on every paragraph remembering
@@ -365,7 +475,7 @@ export function toDocx(doc: ResumeDocument): Document {
       },
     ],
   });
-}
+};
 
 export interface RenderedResume {
   docxPath: string;
@@ -381,16 +491,26 @@ export interface RenderedResume {
  * without a desktop suite installed. The docx is the artifact that matters, so a
  * missing pdf returns null and lets the caller carry on rather than throwing away a
  * variant that cost a deep-tier call.
+ *
+ * THE WRITER IS AN ARGUMENT, defaulting to the classic template above. A caller that
+ * wants another one passes it - `templateWriter(profile.resumeTemplate)` - and the
+ * docx write, the LibreOffice invocation and its several hard-won details stay in one
+ * function for every template there will ever be.
  */
 export async function renderResume(
   doc: ResumeDocument,
   outputDir: string,
   basename: string,
+  options: WriterOptions & { write?: ResumeWriter } = {},
 ): Promise<RenderedResume> {
   await mkdir(outputDir, { recursive: true });
 
+  const write = options.write ?? toDocx;
   const docxPath = path.join(outputDir, `${basename}.docx`);
-  await writeFile(docxPath, await Packer.toBuffer(toDocx(doc)));
+  await writeFile(
+    docxPath,
+    await Packer.toBuffer(write(doc, { mark: options.mark })),
+  );
 
   const pdfPath = await toPdf(docxPath, outputDir);
   return { docxPath, pdfPath };

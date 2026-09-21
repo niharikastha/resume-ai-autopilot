@@ -23,7 +23,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AtomKind } from '@prisma/client';
+import { AtomKind, type ResumeTemplate } from '@prisma/client';
 import type { TailorShared } from '../llm/tasks/tailor-resume.task';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalise } from '../profile/tech';
@@ -41,6 +41,7 @@ const PROFILE_SELECT = {
   label: true,
   isActive: true,
   confirmedAt: true,
+  resumeTemplate: true,
   fullName: true,
   email: true,
   phone: true,
@@ -57,6 +58,8 @@ export interface ResumeSource {
     label: string;
     isActive: boolean;
     fullName: string;
+    /** How this resume is typeset. Carried here so no caller has to re-read it. */
+    resumeTemplate: ResumeTemplate;
   };
   contact: ResumeContact;
   /**
@@ -154,6 +157,7 @@ export class ResumeSourceService {
         label: profile.label,
         isActive: profile.isActive,
         fullName: profile.fullName,
+        resumeTemplate: profile.resumeTemplate,
       },
       contact: contactOf(profile),
       headline,

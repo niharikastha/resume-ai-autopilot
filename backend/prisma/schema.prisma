@@ -370,6 +370,15 @@ model CandidateProfile {
   /// mid-upload with nothing confirmed has no active resume.
   isActive Boolean @default(false)
 
+  /// How this resume is typeset, everywhere it is rendered - the preview, the
+  /// pipeline's variants and the ones tailored by hand.
+  ///
+  /// ON THE RESUME AND NOT ON THE USER. A candidate holding two resumes holds them
+  /// because they are aimed at different things, and "the compact one-pager" is
+  /// exactly that kind of difference. A per-user setting would retypeset all of them
+  /// when the candidate changed one.
+  resumeTemplate ResumeTemplate @default(CLASSIC)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -805,6 +814,24 @@ model ResumeVariant {
   @@map("resume_variants")
 }
 
+/// How a resume is TYPESET. Not what it says, and not what order it says it in.
+///
+/// Every template prints the same blocks in the same order, because that order is
+/// the ATS contract - see resume.render.ts, whose whole header is a list of layout
+/// features that reorder or hide text on the way into a parser. What a template is
+/// allowed to change is margins, sizes, weights, alignment and rules. So switching
+/// template can change how many pages the resume runs to and cannot change a single
+/// word of it.
+///
+/// CLASSIC is the default and must stay byte-identical to what this system rendered
+/// before templates existed: resumes already sent to employers were rendered by it,
+/// and a candidate re-downloading one should get the document they sent.
+enum ResumeTemplate {
+  CLASSIC /// centred name, ruled section headings, 11pt, one-inch margins
+  COMPACT /// same document, tightened to fit a page - 10pt, 0.6in margins
+  MODERN /// left-aligned name, larger coloured headings, more air between sections
+}
+
 /// A resume the CANDIDATE asked for, against a JD they chose.
 ///
 /// A SEPARATE TABLE FROM ResumeVariant, which is the pipeline's. The two look
@@ -843,6 +870,14 @@ model TailoredResume {
   coverLetter   String? @db.Text
   docxPath      String?
   pdfPath       String?
+
+  /// Which template the files above were written in.
+  ///
+  /// Recorded rather than read from the profile, because the profile's template
+  /// changes and these files do not. Without it, re-typesetting a past run would
+  /// have to guess what it currently is, and the screen offering the switch would
+  /// show the wrong one as selected.
+  template ResumeTemplate @default(CLASSIC)
 
   /// Same guard, same report shape as ResumeVariant. A FAILED row is still
   /// written and still points at rendered files - they hold the BASE resume,

@@ -834,9 +834,37 @@ export interface PreviewResult {
   label: string;
   atomCount: number;
   headline: string | null;
+  /** What it was just rendered in, which is now what this resume is saved as. */
+  template: ResumeTemplate;
+  /** The templates that exist, from the server. See `TemplateChoice`. */
+  templates: TemplateChoice[];
   pdf: boolean;
   renderedAt: string;
   bytes: number | null;
+}
+
+/**
+ * A resume template.
+ *
+ * TYPESETTING ONLY. Every template prints the same lines in the same order, because that
+ * order is what an ATS parser reads; what changes is margins, sizes, weights and colour.
+ * So switching one can change how many pages the resume runs to and cannot change a word
+ * of it — which is also why the picker saves rather than previews: applications go out in
+ * whichever one is chosen.
+ */
+export type ResumeTemplate = 'CLASSIC' | 'COMPACT' | 'MODERN';
+
+/**
+ * One template on offer, described by the server.
+ *
+ * The list is NOT hardcoded here. A template named in the frontend and missing from the
+ * server's writer table would be a picker that renders the wrong document, so the server
+ * sends the templates it can actually write along with the copy describing each.
+ */
+export interface TemplateChoice {
+  id: ResumeTemplate;
+  label: string;
+  detail: string;
 }
 
 /**
@@ -904,6 +932,82 @@ export interface TailoredSummary {
   coverLetter: string | null;
   docx: boolean;
   pdf: boolean;
+  /**
+   * The template the files on disk are written in.
+   *
+   * Recorded on the run rather than read off the resume, because the resume's template
+   * changes and these files do not until they are re-typeset.
+   */
+  template: ResumeTemplate;
   createdAt: string;
   model: string | null;
+}
+
+/**
+ * One run of words, labelled against the candidate's own sentence.
+ *
+ * `same` text is taken from the tailored version, so concatenating `same` and `added` in
+ * order gives exactly the sentence on the page and dropping `removed` gives what the
+ * resume said before. Words are compared case-insensitively and ignoring punctuation at
+ * their edges, so a comma that moved is not reported as a rewrite.
+ */
+export interface DiffSegment {
+  text: string;
+  change: 'same' | 'added' | 'removed';
+}
+
+/** One piece of the resume the tailored version re-worded. */
+export interface TailoredChangeLine {
+  atomId: string;
+  kind: AtomKind;
+  employer: string | null;
+  before: string;
+  after: string;
+  segments: DiffSegment[];
+  added: number;
+  removed: number;
+}
+
+/** A piece the tailored version leaves off the page entirely. */
+export interface TailoredDroppedLine {
+  atomId: string;
+  kind: AtomKind;
+  employer: string | null;
+  text: string;
+}
+
+/**
+ * What tailoring did, against the resume as it stands today.
+ *
+ * `applied: false` is the difference between "this is what your resume says" and "this
+ * was proposed and refused". A rejected run's document is the base resume, so showing
+ * its rewrites without that flag would tell a candidate their resume says something it
+ * does not.
+ *
+ * AGAINST TODAY'S RESUME. The server stores the decision — which pieces, re-worded how —
+ * and rebuilds from the pieces as they are now, so editing a bullet and then reading a
+ * month-old run's changes diffs against the edited bullet. `missing` counts pieces the
+ * run used that no longer exist.
+ */
+export interface TailoredChanges {
+  id: string;
+  template: ResumeTemplate;
+  applied: boolean;
+  headline: {
+    before: string | null;
+    after: string;
+    segments: DiffSegment[];
+  } | null;
+  rewritten: TailoredChangeLine[];
+  dropped: TailoredDroppedLine[];
+  /** Pieces used word for word — usually most of the resume, and the safest outcome. */
+  kept: number;
+  missing: number;
+}
+
+/** What POST /api/me/tailor/:id/marked reports after rendering the review copy. */
+export interface MarkedResult {
+  pdf: boolean;
+  /** Lines highlighted in it. Zero means the run re-worded nothing. */
+  marked: number;
 }

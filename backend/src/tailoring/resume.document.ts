@@ -74,6 +74,8 @@ export interface ResumeRoleBlock {
   /** The ROLE atom's own id, or null for a block holding orphan bullets. */
   atomId: string | null;
   title: string;
+  /** True when `title` came from the model rather than from the ROLE atom verbatim. */
+  titleRewritten: boolean;
   employer: string | null;
   dateRange: string | null;
   bullets: ResumeBullet[];
@@ -167,6 +169,7 @@ export function buildResume(
         open = {
           atomId: atom.id,
           title: rewrites.get(atom.id) ?? atom.text,
+          titleRewritten: rewrites.has(atom.id),
           employer: atom.employer,
           dateRange: atom.dateRange,
           bullets: [],
@@ -184,6 +187,7 @@ export function buildResume(
           open = {
             atomId: null,
             title: '',
+            titleRewritten: false,
             employer: atom.employer,
             dateRange: atom.dateRange,
             bullets: [],

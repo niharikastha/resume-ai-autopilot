@@ -35,7 +35,7 @@
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { AtomKind } from '@prisma/client';
+import { AtomKind, ResumeTemplate } from '@prisma/client';
 import { execFileSync } from 'child_process';
 import { mkdtemp, readdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -46,6 +46,7 @@ import { OnDemandTailoringService } from '../src/tailoring/on-demand.service';
 import { PreviewService } from '../src/tailoring/preview.service';
 import { ResumeSourceService } from '../src/tailoring/resume.source';
 import { SuggestionsService } from '../src/tailoring/suggestions.service';
+import { diffWords } from '../src/tailoring/text.diff';
 
 const USER = 'user-1';
 const OTHER_USER = 'user-2';
@@ -105,11 +106,20 @@ const ATOMS = [
   },
 ];
 
+/**
+ * MUTABLE, because choosing a template writes to it.
+ *
+ * `PreviewService.render` saves the chosen template on the resume, and a stub whose
+ * profile could not change would make that pass without the column being written - which
+ * is the difference between a picker that governs what gets sent and one that only
+ * governs the preview.
+ */
 const PROFILE_ROW = {
   id: PROFILE,
   userId: USER,
   label: 'Backend 2026',
   isActive: true,
+  resumeTemplate: ResumeTemplate.CLASSIC as ResumeTemplate,
   confirmedAt: new Date('2026-09-01T00:00:00Z'),
   fullName: 'Astha Niharika',
   email: 'astha@example.com',
@@ -174,6 +184,7 @@ interface StoredRow {
   coverLetter: string | null;
   docxPath: string | null;
   pdfPath: string | null;
+  template: ResumeTemplate;
   provenanceReport: unknown;
   guardPassed: boolean;
   llmProvider: string;
@@ -200,6 +211,17 @@ const prisma = {
         w.userId === PROFILE_ROW.userId &&
         (w.id === undefined || w.id === PROFILE_ROW.id);
       return Promise.resolve(match ? PROFILE_ROW : null);
+    },
+    updateMany: (args: {
+      where: { id: string; userId: string };
+      data: { resumeTemplate: ResumeTemplate };
+    }) => {
+      const w = args.where;
+      if (w.id !== PROFILE_ROW.id || w.userId !== PROFILE_ROW.userId) {
+        return Promise.resolve({ count: 0 });
+      }
+      PROFILE_ROW.resumeTemplate = args.data.resumeTemplate;
+      return Promise.resolve({ count: 1 });
     },
   },
   profileAtom: {
@@ -243,6 +265,25 @@ const prisma = {
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
           .slice(0, args.take),
       ),
+    // userId is honoured here too: every one of `changes`, `retypeset`, `markReview`
+    // and `remove` finds its row by id AND userId, which is what makes another
+    // account's tailored resume unfindable rather than merely refused.
+    findFirst: (args: { where: { id: string; userId: string } }) =>
+      Promise.resolve(
+        stored.find(
+          (row) => row.id === args.where.id && row.userId === args.where.userId,
+        ) ?? null,
+      ),
+    update: (args: {
+      where: { id: string };
+      data: Partial<StoredRow>;
+    }): Promise<StoredRow> => {
+      const row = stored.find((r) => r.id === args.where.id);
+      if (!row)
+        throw new Error('the stub was asked to update a row it has not got');
+      Object.assign(row, args.data);
+      return Promise.resolve(row);
+    },
   },
 } as unknown as PrismaService;
 
@@ -377,11 +418,16 @@ function same(got: unknown, want: unknown): string | null {
  * Tags are removed without putting a space in their place: Word splits a sentence across
  * several `<w:t>` runs, and a space per tag would break every phrase being searched for.
  */
-function documentText(docxPath: string): string {
-  const xml = execFileSync('unzip', ['-p', docxPath, 'word/document.xml'], {
+function documentXml(docxPath: string): string {
+  return execFileSync('unzip', ['-p', docxPath, 'word/document.xml'], {
     maxBuffer: 16 * 1024 * 1024,
   }).toString('utf8');
-  return xml.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+}
+
+function documentText(docxPath: string): string {
+  return documentXml(docxPath)
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ');
 }
 
 async function thrown(
@@ -400,11 +446,17 @@ async function thrown(
 
 interface Case {
   name: string;
-  run: () => Promise<string | null>;
+  /**
+   * Null passes; a sentence is the complaint.
+   *
+   * Sync is allowed because the word diff is a pure function - marking its case
+   * `async` to satisfy this type would say it waits on something when it does not.
+   */
+  run: () => string | null | Promise<string | null>;
 }
 
 const source = () => new ResumeSourceService(prisma);
-const preview = () => new PreviewService(source(), config);
+const preview = () => new PreviewService(prisma, source(), config);
 const suggestions = (answer: unknown) =>
   new SuggestionsService(source(), llmReturning(answer));
 const tailoring = (answer: unknown) =>
@@ -703,6 +755,270 @@ const CASES: Case[] = [
       );
     },
   },
+  {
+    name: 'the word diff labels the words that changed and nothing else',
+    run: () => {
+      const unchanged = diffWords(
+        'Cut checkout p95 latency by 40%.',
+        'Cut checkout p95 latency by 40%.',
+      );
+      const swapped = diffWords(
+        'Built a Redis cache.',
+        'Shipped a Redis cache.',
+      );
+      const fresh = diffWords('', 'A line that was not there before.');
+      // Case and the punctuation around a word are not changes. This is the case that
+      // keeps a re-flowed sentence from being reported as rewritten end to end.
+      const repunctuated = diffWords(
+        '(Reduced) latency by 40%, measurably.',
+        'reduced Latency by 40% measurably',
+      );
+
+      return (
+        same(unchanged.segments, [
+          { text: 'Cut checkout p95 latency by 40%.', change: 'same' },
+        ]) ??
+        expect(
+          unchanged.added === 0 && unchanged.removed === 0,
+          `an identical sentence reported ${unchanged.added} added, ${unchanged.removed} removed`,
+        ) ??
+        same(swapped.segments, [
+          { text: 'Built', change: 'removed' },
+          { text: 'Shipped', change: 'added' },
+          { text: 'a Redis cache.', change: 'same' },
+        ]) ??
+        expect(
+          fresh.removed === 0 && fresh.added === 7,
+          `a new sentence reported ${fresh.added} added, ${fresh.removed} removed`,
+        ) ??
+        expect(
+          repunctuated.added === 0 && repunctuated.removed === 0,
+          'case and edge punctuation were reported as edits: ' +
+            JSON.stringify(repunctuated.segments),
+        )
+      );
+    },
+  },
+  {
+    name: 'choosing a template saves it on the resume and every template says the same thing',
+    run: async () => {
+      const said: string[] = [];
+      let listed = 0;
+
+      for (const template of [
+        ResumeTemplate.CLASSIC,
+        ResumeTemplate.COMPACT,
+        ResumeTemplate.MODERN,
+      ]) {
+        const result = await preview().render(USER, PROFILE, template);
+        listed = result.templates.length;
+        if (result.template !== template) {
+          return `render in ${template} reported ${result.template}`;
+        }
+        if (PROFILE_ROW.resumeTemplate !== template) {
+          return `the resume still says ${PROFILE_ROW.resumeTemplate}`;
+        }
+        // Through `file`, which reads the template off the profile - so this also
+        // proves a download after a switch is not the previous template's document.
+        const file = await preview().file(USER, PROFILE, 'docx');
+        said.push(documentText(file.path));
+      }
+
+      const files = (await readdir(join(outputDir, 'previews'))).filter(
+        (name) => name.endsWith('.docx'),
+      );
+
+      // Left as it was found, so the cases below are not reading a resume this one
+      // retypeset behind them.
+      await preview().render(USER, PROFILE, ResumeTemplate.CLASSIC);
+
+      return (
+        expect(listed === 3, `${listed} templates offered, wanted 3`) ??
+        expect(
+          said[0] === said[1] && said[1] === said[2],
+          'two templates printed different words, which is the one thing a ' +
+            'template may not change',
+        ) ??
+        expect(
+          said[0].includes('Cut checkout p95 latency by 40%'),
+          'no template printed the base bullet',
+        ) ??
+        expect(
+          files.length === 3,
+          `${files.length} preview docx files for 3 templates: ${files.join(', ')}`,
+        )
+      );
+    },
+  },
+  {
+    name: 'the changes are the rewritten lines, the dropped pieces and the kept count',
+    run: async () => {
+      const passed = stored.find((row) => row.guardPassed);
+      const rejected = stored.find((row) => !row.guardPassed);
+      if (!passed || !rejected)
+        return 'the earlier cases stored no runs to read';
+
+      const good = await tailoring(HONEST_TAILORING).changes(USER, passed.id);
+      const bad = await tailoring(HONEST_TAILORING).changes(USER, rejected.id);
+
+      const line = good.rewritten[0];
+      return (
+        expect(
+          good.applied,
+          'a passing run says its changes were not applied',
+        ) ??
+        expect(
+          good.rewritten.length === 1 && line?.atomId === 'atom-cache',
+          `rewritten was ${JSON.stringify(good.rewritten.map((r) => r.atomId))}`,
+        ) ??
+        expect(
+          line?.before === ATOMS[1].text &&
+            line?.after === HONEST_TAILORING.rewrites[0].text,
+          'the before/after pair is not the atom and the rewrite',
+        ) ??
+        expect(
+          (line?.added ?? 0) > 0 && (line?.removed ?? 0) > 0,
+          'a reworded bullet reported no added or removed words',
+        ) ??
+        // Five selected, one of them rewritten.
+        expect(good.kept === 4, `${good.kept} kept, wanted 4`) ??
+        expect(
+          good.dropped.length === 0 && good.missing === 0,
+          'a run that selected everything reported omissions',
+        ) ??
+        expect(
+          good.headline?.after === HONEST_TAILORING.headline,
+          `the headline change was ${JSON.stringify(good.headline)}`,
+        ) ??
+        // The rejected run's document is the base resume, and saying otherwise would
+        // tell a candidate their resume says something it does not.
+        expect(!bad.applied, 'a rejected run says its changes were applied') ??
+        same(bad.dropped.map((d) => d.atomId).sort(), [
+          'atom-edu',
+          'atom-skill',
+        ])
+      );
+    },
+  },
+  {
+    name: 're-typesetting a stored run changes the template and not the words',
+    run: async () => {
+      const passed = stored.find((row) => row.guardPassed);
+      if (!passed?.docxPath) return 'there is no stored run with a file';
+
+      const before = documentText(passed.docxPath);
+      const beforeXml = documentXml(passed.docxPath);
+      const beforeFiles = (await readdir(join(outputDir, 'tailored'))).length;
+
+      const updated = await tailoring(HONEST_TAILORING).retypeset(
+        USER,
+        passed.id,
+        ResumeTemplate.COMPACT,
+      );
+
+      const afterFiles = (await readdir(join(outputDir, 'tailored'))).length;
+      const after = passed.docxPath ? documentText(passed.docxPath) : '';
+
+      return (
+        expect(
+          updated.template === ResumeTemplate.COMPACT,
+          `the row says ${updated.template}`,
+        ) ??
+        expect(after === before, 're-typesetting changed the words') ??
+        expect(
+          documentXml(passed.docxPath) !== beforeXml,
+          're-typesetting produced a byte-identical file, so the template did nothing',
+        ) ??
+        expect(
+          afterFiles === beforeFiles,
+          `${beforeFiles} files became ${afterFiles} - a run should stay one pair`,
+        ) ??
+        expect(
+          (
+            await thrown(() =>
+              tailoring(HONEST_TAILORING).retypeset(
+                OTHER_USER,
+                passed.id,
+                ResumeTemplate.MODERN,
+              ),
+            )
+          )?.name === NotFoundException.name,
+          "another user could retypeset this candidate's resume",
+        )
+      );
+    },
+  },
+  {
+    name: 'the marked copy highlights the rewritten line and the document sent does not',
+    run: async () => {
+      const passed = stored.find((row) => row.guardPassed);
+      if (!passed?.docxPath) return 'there is no stored run with a file';
+
+      const result = await tailoring(HONEST_TAILORING).markReview(
+        USER,
+        passed.id,
+      );
+      const review = join(
+        outputDir,
+        'review',
+        `REVIEW-marked-changes-${passed.id}.docx`,
+      );
+
+      return (
+        expect(
+          result.marked === 1,
+          `${result.marked} lines marked, wanted 1`,
+        ) ??
+        expect(
+          documentXml(review).includes('w:highlight'),
+          'the review copy has no highlighting in it',
+        ) ??
+        expect(
+          !documentXml(passed.docxPath).includes('w:highlight'),
+          'the document the candidate sends has highlighting in it',
+        ) ??
+        expect(
+          documentText(review).includes('Took 40% off checkout p95'),
+          'the review copy is not the same document',
+        ) ??
+        // Only when LibreOffice is here. A missing pdf is a reported outcome.
+        expect(
+          !result.pdf ||
+            (
+              await tailoring(HONEST_TAILORING).reviewFile(USER, passed.id)
+            ).filename.startsWith('REVIEW'),
+          'the marked copy is named like a resume somebody could send',
+        )
+      );
+    },
+  },
+  {
+    name: 'a rejected run has no marked copy, and neither has another account',
+    run: async () => {
+      const rejected = stored.find((row) => !row.guardPassed);
+      const passed = stored.find((row) => row.guardPassed);
+      if (!rejected || !passed)
+        return 'the earlier cases stored no runs to read';
+
+      const onRejected = await thrown(() =>
+        tailoring(HONEST_TAILORING).markReview(USER, rejected.id),
+      );
+      const asOther = await thrown(() =>
+        tailoring(HONEST_TAILORING).changes(OTHER_USER, passed.id),
+      );
+
+      return (
+        expect(
+          onRejected?.name === BadRequestException.name,
+          `marking a rejected run gave ${onRejected?.name}`,
+        ) ??
+        expect(
+          asOther?.name === NotFoundException.name,
+          `another account reading the changes gave ${asOther?.name}`,
+        )
+      );
+    },
+  },
 ];
 
 async function main() {
@@ -712,9 +1028,14 @@ async function main() {
 
   try {
     for (const testCase of CASES) {
-      const complaint = await testCase
-        .run()
-        .catch((error: unknown) => `threw: ${String(error)}`);
+      // try/catch rather than `.catch`, because a sync case throws before there is a
+      // promise to attach a handler to.
+      let complaint: string | null;
+      try {
+        complaint = await testCase.run();
+      } catch (error: unknown) {
+        complaint = `threw: ${String(error)}`;
+      }
       if (complaint === null) pass++;
       else fail++;
       console.log(
