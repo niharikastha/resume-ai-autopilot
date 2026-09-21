@@ -15,6 +15,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { MatchDecision } from '@prisma/client';
 import { Job, Queue } from 'bullmq';
+import { blockedCompanyIds } from '../config/blocked-companies';
 import { PrismaService } from '../prisma/prisma.service';
 import { QUEUE } from '../queue/queue.module';
 // A pure host test, not the adapter registry - see appliedByHand. Importing the
@@ -186,12 +187,13 @@ export class MatchesService {
    * includes two hundred rejections is a figure nobody can act on.
    */
   async summary(userId: string): Promise<MatchSummary> {
+    const blocked = await this.blockedCompanyIds(userId);
     const groups = await this.prisma.matchScore.groupBy({
       by: ['decision'],
       where: {
         userId,
         verdict: { in: DECIDABLE },
-        job: { closedAt: null },
+        job: { closedAt: null, ...notBlocked(blocked) },
       },
       _count: { _all: true },
     });
@@ -216,6 +218,18 @@ export class MatchesService {
    *
    * Rejected postings are included unless asked otherwise, because a shortlist that
    * hides its own rejections cannot be checked. The screen filters, not this.
+   *
+   * THE ONE EXCEPTION IS A RULED-OUT EMPLOYER, and it is an exception because a low
+   * score and a blocked company are different claims. A REJECT verdict is this
+   * system's opinion and belongs on screen where it can be disagreed with; a blocked
+   * company is the candidate's own instruction, already given, and showing those rows
+   * anyway would be asking the question again. Stage 1 will not score them going
+   * forward - this filter is what hides the ones scored BEFORE the rule was added,
+   * which would otherwise sit at the top of the list forever.
+   *
+   * Filtered by id and not by verdict, so unblocking an employer brings its rows
+   * straight back: nothing is deleted and no decision is written on the candidate's
+   * behalf.
    */
   async list(
     userId: string,
@@ -225,6 +239,7 @@ export class MatchesService {
       decision?: MatchDecision;
     } = {},
   ): Promise<MatchRow[]> {
+    const blocked = await this.blockedCompanyIds(userId);
     const scores = await this.prisma.matchScore.findMany({
       where: {
         userId,
@@ -235,7 +250,7 @@ export class MatchesService {
           ? {}
           : { decision: options.decision }),
         // A posting the employer has taken down is not a suggestion.
-        job: { closedAt: null },
+        job: { closedAt: null, ...notBlocked(blocked) },
       },
       orderBy: [{ score: 'desc' }, { scoredAt: 'desc' }],
       take: options.limit ?? 50,
@@ -318,6 +333,30 @@ export class MatchesService {
     });
   }
 
+  /**
+   * The ids of the employers this candidate has ruled out.
+   *
+   * IDS AND NOT WORDS, because both callers filter in SQL: one is a `groupBy` that
+   * never loads a row, and the other is a `take: 50` whose whole point is that the
+   * database does the ordering. Matching on words would mean loading every score and
+   * filtering in memory, which turns a 50-row page into a full table read.
+   *
+   * The `findMany` over companies is the price: a few hundred rows, two short columns,
+   * and only when the candidate has actually blocked something.
+   */
+  private async blockedCompanyIds(userId: string): Promise<string[]> {
+    const blocked = await this.prisma.blockedCompany.findMany({
+      where: { userId },
+      select: { pattern: true, label: true },
+    });
+    if (blocked.length === 0) return [];
+
+    const companies = await this.prisma.company.findMany({
+      select: { id: true, name: true },
+    });
+    return blockedCompanyIds(companies, blocked);
+  }
+
   /** A waiting or in-progress run for this candidate. */
   private async liveJob(userId: string): Promise<Job<ScoreJobData> | null> {
     return this.newestJob(userId, ['active', 'waiting', 'delayed', 'paused']);
@@ -392,4 +431,16 @@ export class MatchesService {
     if (state === 'unknown') return 'idle';
     return 'queued';
   }
+}
+
+/**
+ * The `job` clause that excludes ruled-out employers, or nothing at all.
+ *
+ * An empty list has to produce NO CLAUSE rather than `notIn: []`. Prisma renders that
+ * as `NOT (companyId IN (NULL))`, which is NULL rather than true for every row and
+ * therefore excludes the whole table - the ordinary case, with no blocklist at all,
+ * would return an empty shortlist and look like a quiet week.
+ */
+function notBlocked(blockedIds: string[]) {
+  return blockedIds.length === 0 ? {} : { companyId: { notIn: blockedIds } };
 }

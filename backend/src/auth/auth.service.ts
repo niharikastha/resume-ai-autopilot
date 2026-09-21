@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -596,6 +597,62 @@ export class AuthService {
       },
     });
     this.logger.log(`created ${user.role} ${user.email}`);
+    return AuthService.toSessionUser(user);
+  }
+
+  /**
+   * Admin path. Creates an ACTIVE candidate account with a password the admin sets.
+   *
+   * THE SHORTCUT IT REPLACES is telling somebody to go and sign up and then coming back
+   * to approve them - two screens, a wait in between, and a person who cannot tell
+   * whether they did it right. This is the same account at the end of it, created
+   * approved because the admin creating it IS the approval.
+   *
+   * ROLE IS NOT A PARAMETER, exactly as in `signup` and for the stronger of the two
+   * reasons. `createUser` above takes one because it is reachable only from a shell on
+   * the host, which is already full trust. This is reachable from a browser session, so
+   * an admin who is phished or who leaves a laptop open must not be able to mint a
+   * second administrator through it - and the strongest form of that is that the field
+   * does not exist here. Promotion stays `npm run cli -- create-user --role admin`.
+   *
+   * THE DUPLICATE IS REPORTED, unlike in `signup`. That endpoint has to take the same
+   * path for a known and an unknown address or it is a user-enumeration oracle for
+   * anyone with a browser. An admin already has the whole account list on the screen
+   * they pressed the button on, so there is nothing to leak and every reason to say
+   * plainly that the address is taken.
+   */
+  async createCandidate(
+    input: { email: string; name: string; password: string },
+    actor: SessionUser,
+  ): Promise<SessionUser> {
+    AuthService.assertPasswordLength(input.password);
+    const email = input.email.trim().toLowerCase();
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(`${email} already has an account`);
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        name: input.name.trim(),
+        role: Role.USER,
+        active: true,
+        // Approved on creation, and by whom. The admin list reads these two together
+        // to tell a new signup from a suspended account, so an account created active
+        // with `approvedAt` left null would show up as "never reviewed" the first time
+        // anyone suspended it - the wrong label and the wrong button.
+        approvedAt: new Date(),
+        approvedById: actor.id,
+        passwordHash: await hashPassword(input.password),
+      },
+    });
+
+    this.logger.log(`${actor.email} created candidate ${user.email}`);
     return AuthService.toSessionUser(user);
   }
 

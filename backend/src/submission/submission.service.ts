@@ -34,6 +34,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { resolve } from 'node:path';
+import { blockedBy } from '../config/blocked-companies';
 import { loadTargets } from '../config/targets';
 import { PrismaService } from '../prisma/prisma.service';
 import { toStatedAnswers, type AnswerSet } from './answers';
@@ -158,7 +159,7 @@ export class SubmissionService {
     const jobIds = variants.map((variant) => variant.jobId);
 
     // Three lookups, each one query rather than one per posting.
-    const [scores, existing, cooling] = await Promise.all([
+    const [scores, existing, cooling, blocked] = await Promise.all([
       this.prisma.matchScore.findMany({
         where: { userId: profile.userId, jobId: { in: jobIds } },
         // `decision` comes back with the score because a posting the candidate
@@ -188,6 +189,10 @@ export class SubmissionService {
         profile.userId,
         targets.limits.perCompanyCooldownDays,
       ),
+      this.prisma.blockedCompany.findMany({
+        where: { userId: profile.userId },
+        select: { pattern: true, label: true },
+      }),
     ]);
 
     const scoreOf = new Map(scores.map((score) => [score.jobId, score.score]));
@@ -222,6 +227,16 @@ export class SubmissionService {
       }
       if (rejected.has(job.id)) {
         note('you said no to this one in your digest');
+        continue;
+      }
+      // Checked HERE as well as in stage 1, and not because stage 1 might miss it. A
+      // variant can be older than the blocklist entry: the resume was tailored for this
+      // employer last week and the candidate ruled them out yesterday, so the row that
+      // opens a form already exists. The last gate before a browser window is the one
+      // that has to be right.
+      const ruledOut = blockedBy(job.company?.name, blocked);
+      if (ruledOut) {
+        note(`you have ruled out ${ruledOut.label}`);
         continue;
       }
       if (!job.companyId) {

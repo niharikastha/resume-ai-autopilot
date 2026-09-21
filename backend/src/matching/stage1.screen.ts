@@ -26,6 +26,7 @@
  * becomes a low score with a stated reason rather than a silent drop.
  */
 import { RemoteType } from '@prisma/client';
+import { blockedBy, type BlockedPattern } from '../config/blocked-companies';
 import { Targets } from '../config/targets';
 import { normalizeTitle } from '../discovery/normalize';
 
@@ -39,6 +40,7 @@ import { normalizeTitle } from '../discovery/normalize';
 export type RejectReason =
   | 'closed'
   | 'already-applied'
+  | 'company-blocked'
   | 'title-excluded'
   | 'title-not-included'
   | 'seniority'
@@ -63,6 +65,8 @@ export interface ScreenablePosting {
   title: string;
   /** Already computed by discovery via normalizeTitle. */
   normalizedTitle: string;
+  /** The employer, for the blocklist rule. Null when the company was never resolved. */
+  companyName: string | null;
   descriptionText: string;
   location: string | null;
   remoteType: RemoteType;
@@ -80,6 +84,14 @@ export interface ScreenContext {
   now: Date;
   /** Postings this user already has an Application row for. */
   appliedJobIds: ReadonlySet<string>;
+  /**
+   * Employers this candidate has ruled out. See config/blocked-companies.ts.
+   *
+   * In the CONTEXT rather than in `targets`, because it belongs to a person and not to
+   * the job market - the same split JobPreference makes. An empty list is the ordinary
+   * case and costs nothing: `blockedBy` returns early on it.
+   */
+  blockedCompanies?: readonly BlockedPattern[];
 }
 
 /**
@@ -147,6 +159,21 @@ export function screen(
 
   if (ctx.appliedJobIds.has(posting.id)) {
     return { pass: false, reason: 'already-applied' };
+  }
+
+  // Third, with the other two facts, and above every judgement about the job. A
+  // candidate who has ruled out an employer has not asked for that employer's best
+  // role to be weighed up - and putting it here means a blocked company costs no
+  // description scan, no embedding and no model call, which is the whole reason the
+  // rule is in stage 1 rather than at the apply step.
+  //
+  // REPORTED AS A NAMED REASON rather than filtered out in `loadCandidates`' SQL. The
+  // histogram is how a rule that is doing too much gets noticed, and "700 postings
+  // dropped on company-blocked" is a sentence worth seeing when an entry turns out to
+  // match half the market.
+  const blocked = blockedBy(posting.companyName, ctx.blockedCompanies ?? []);
+  if (blocked) {
+    return { pass: false, reason: 'company-blocked', matched: blocked.label };
   }
 
   // Discovery drops description-less postings before writing them, so this should
@@ -225,9 +252,18 @@ export function screen(
  *
  * Callers that HAVE a description should still call `screen`. This is not a cheaper
  * screen, it is a partial one.
+ *
+ * `companyName` is omitted along with them, so the blocklist is not applied here. Both
+ * callers are ALREADY looking at one named employer - a company's own row on the jobs
+ * page, or the board being previewed before it is added - so a rule about which
+ * employers to ignore has nothing to decide that the reader has not already decided by
+ * being on that screen.
  */
 export function screenMetadata(
-  posting: Omit<ScreenablePosting, 'descriptionText' | 'closedAt' | 'id'>,
+  posting: Omit<
+    ScreenablePosting,
+    'descriptionText' | 'closedAt' | 'id' | 'companyName'
+  >,
   targets: Targets,
 ): Stage1Verdict {
   // Re-normalized rather than trusted: `normalizedTitle` is written by whichever

@@ -15,6 +15,8 @@ import { Module } from '@nestjs/common';
 import { EmbeddingsModule } from '../embeddings/embeddings.module';
 import { AnswersController } from './answers.controller';
 import { AnswersService } from './answers.service';
+import { BlockedCompaniesController } from './blocked-companies.controller';
+import { BlockedCompaniesService } from './blocked-companies.service';
 import { PreferencesController } from './preferences.controller';
 import { PreferencesService } from './preferences.service';
 import { ProfileService } from './profile.service';
@@ -32,12 +34,22 @@ import { ResumeController } from './resume.controller';
   // and CTC are facts only the candidate can state. The submission path reads the row
   // it writes, and the conversion between the two lives in submission/answers.ts so
   // the screen shows exactly what the filler will type.
-  controllers: [ResumeController, PreferencesController, AnswersController],
+  // BlockedCompaniesController joins them for the same reason, and its rule reaches
+  // matching the same way: MatchingService reads the rows itself and applies a pure
+  // function from config/blocked-companies.ts, so nothing outside this module depends on
+  // the provider below.
+  controllers: [
+    ResumeController,
+    PreferencesController,
+    AnswersController,
+    BlockedCompaniesController,
+  ],
   providers: [
     ProfileService,
     ResumeLibraryService,
     PreferencesService,
     AnswersService,
+    BlockedCompaniesService,
   ],
   exports: [ProfileService, ResumeLibraryService],
 })

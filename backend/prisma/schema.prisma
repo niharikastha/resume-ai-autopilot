@@ -90,6 +90,7 @@ model User {
   answers         ApplicationAnswers?
   digests         DailyDigest[]
   jobPreference   JobPreference?
+  blockedEmployers BlockedCompany[]
   settingsTouched AppSetting[]
   tailored        TailoredResume[]
 
@@ -296,6 +297,55 @@ model JobPreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("job_preferences")
+}
+
+/// Employers this candidate will not work for, in their own words.
+///
+/// THE ONE STAGE-1 RULE THAT IS ABOUT A RELATIONSHIP RATHER THAN ABOUT A JOB. Every
+/// other rule asks whether the posting is a fit; this one says the fit is irrelevant.
+/// The reasons are ordinary and none of them are inferable from a description - a
+/// previous employer, a company that already rejected them, an agency that spams, a
+/// client the candidate is under a non-compete with. No amount of reading the posting
+/// can produce that answer, so it has to be stored.
+///
+/// PER USER, not global, and that is deliberate even on a single-candidate install.
+/// `Company.active` already exists and would have been the cheaper place to put this -
+/// but it is an operational flag about whether a BOARD is worth fetching, and turning
+/// it off would stop the crawl for everybody and lose the postings from the pool
+/// entirely. A skip is not a reason to stop looking; it is a reason not to apply.
+///
+/// TEXT, NOT A `Company` FOREIGN KEY, and this is the decision most worth defending.
+/// A candidate knows the employer's name before this system has ever heard of it - the
+/// company row appears only once some board has been crawled, which for the employer
+/// they just left may be never. A foreign key would make the rule unstatable until the
+/// pipeline happened to discover the company, i.e. exactly too late. So the rule is
+/// stored as words and matched against whatever names turn up, and the matching lives
+/// in one pure function (src/config/blocked-companies.ts) so that every surface - the
+/// screen, the apply plan, the suggestion list - agrees about what "Hyscaler" covers.
+model BlockedCompany {
+  id     String @id @default(uuid())
+  userId String
+
+  /// What the candidate typed, kept verbatim so the screen can show it back.
+  label String
+
+  /// `label` through `normalizeCompany`. Stored rather than derived on read because
+  /// it is what the unique index is built on: "HyScaler" and "hyscaler pvt ltd " are
+  /// one rule entered twice, and a list that accepts both is a list the candidate
+  /// cannot keep tidy.
+  pattern String
+
+  /// Why, in their own words. Optional, never sent anywhere, and the reason it exists
+  /// is that a blocklist read six months later is a set of names with no story.
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pattern])
+  @@index([userId])
+  @@map("blocked_companies")
 }
 
 model ApplicationAnswers {

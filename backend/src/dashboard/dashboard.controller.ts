@@ -6,11 +6,17 @@ import {
   HttpCode,
   Param,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { ApplicationStatus, Role } from '@prisma/client';
 import { z } from 'zod';
-import { CurrentUser, Roles, type SessionUser } from '../auth/auth.constants';
+import {
+  CurrentUser,
+  PASSWORD_MIN_LENGTH,
+  Roles,
+  type SessionUser,
+} from '../auth/auth.constants';
 import { AuthService } from '../auth/auth.service';
 import { DashboardService } from './dashboard.service';
 
@@ -73,6 +79,29 @@ const applicationsQuery = z.object({
 
 const setActiveBody = z.object({ active: z.boolean() });
 
+/**
+ * A new candidate account, as an admin states it.
+ *
+ * NO `role`, AND `.strict()` SO ASKING FOR ONE IS A 400. Without strict, a body carrying
+ * `role: "ADMIN"` would be silently stripped and the request would succeed - which reads
+ * to whoever sent it as though it worked. The service does not accept a role either;
+ * this is the layer that says so out loud.
+ *
+ * The length floor is re-stated rather than imported, because `assertPasswordLength` is
+ * the rule that counts and it throws from inside the service. This exists so the message
+ * arrives with the field name attached instead of as a bare sentence.
+ */
+const createUserBody = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(200),
+    name: z.string().trim().min(1).max(120),
+    password: z
+      .string()
+      .min(PASSWORD_MIN_LENGTH, `at least ${PASSWORD_MIN_LENGTH} characters`)
+      .max(200),
+  })
+  .strict();
+
 /** Zod at the HTTP boundary, same as at the LLM boundary - one validation story. */
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -132,6 +161,23 @@ export class AdminController {
   @Get('users')
   users() {
     return this.dashboard.users();
+  }
+
+  /**
+   * Create a candidate account outright, already approved.
+   *
+   * WHAT IT REPLACES: sending somebody to /signup, waiting, then finding their row and
+   * approving it. Two screens and an interval in which the person cannot tell whether
+   * they did it correctly. This is the same account at the end, and the admin pressing
+   * the button IS the approval - see AuthService.createCandidate.
+   *
+   * NO ROLE FIELD, which is the whole security argument for why this route can exist at
+   * all. Minting an administrator still needs a shell on the host, so a session that has
+   * been phished or left open cannot create a second one. The body has no place to ask.
+   */
+  @Post('users')
+  createUser(@Body() body: unknown, @CurrentUser() actor: SessionUser) {
+    return this.auth.createCandidate(parse(createUserBody, body), actor);
   }
 
   /**

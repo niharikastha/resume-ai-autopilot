@@ -15,6 +15,7 @@ import { api, type UserOverview } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { relativeTime } from '@/lib/utils';
 import { AnswersCard } from './answers';
+import { BlockedCompaniesCard } from './blocked-companies';
 import { LocationsCard } from './locations';
 
 /**
@@ -132,6 +133,12 @@ export default function ProfilePage() {
             of its own because it is the same kind of thing as the answers below:
             something only the candidate can state. */}
         <LocationsCard />
+
+        {/* Directly under the locations card because it is the same kind of rule read
+            from the other side: where you will work, and who you will not work for.
+            Above the answers, because ruling an employer out stops their postings
+            before any of these answers would ever be needed. */}
+        <BlockedCompaniesCard />
 
         {/* The answers themselves. Never inferred, never generated and not visible to
             an administrator - guessing someone's visa status or salary onto a real job

@@ -29,6 +29,7 @@ import {
   SalaryPeriod,
   SalarySource,
 } from '@prisma/client';
+import type { BlockedPattern } from '../config/blocked-companies';
 import { withStatedLocations } from '../config/locations';
 import { Targets, loadTargets } from '../config/targets';
 import {
@@ -158,9 +159,18 @@ export class MatchingService {
 
     // ---- STAGE 1 -----------------------------------------------------------
     const applied = await this.appliedJobIds(profile.userId);
+    const blockedCompanies = await this.blockedCompanies(profile.userId);
+    if (blockedCompanies.length > 0) {
+      this.logger.log(
+        `employers ruled out by this candidate: ${blockedCompanies
+          .map((rule) => rule.label)
+          .join(', ')}`,
+      );
+    }
     const stage1 = screenAll(postings, targets, {
       now: new Date(),
       appliedJobIds: applied,
+      blockedCompanies,
     });
 
     this.logger.log(
@@ -441,6 +451,22 @@ export class MatchingService {
       salaryMin: decimalToNumber(r.salaryMin),
       salaryMax: decimalToNumber(r.salaryMax),
     }));
+  }
+
+  /**
+   * The employers this candidate has ruled out.
+   *
+   * Read here rather than through ProfileModule's service, exactly as the location
+   * preference is: the two CLI containers that assemble matching by hand would each
+   * need another provider otherwise, and the rule itself is a pure function in
+   * config/blocked-companies.ts that needs no injection.
+   */
+  private async blockedCompanies(userId: string): Promise<BlockedPattern[]> {
+    return this.prisma.blockedCompany.findMany({
+      where: { userId },
+      select: { pattern: true, label: true },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   /** Postings this user already has an application for, at any status. */

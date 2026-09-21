@@ -291,6 +291,32 @@ export interface PreferencesView {
   matchingNow: number;
 }
 
+/**
+ * One employer the candidate has ruled out, with what the rule is actually doing.
+ *
+ * `matches` and `postings` are the server's answer to "how far does this reach", and
+ * they are the reason this is not just a list of strings: the rule is matched on words,
+ * so "Tech" looks like one employer and covers eleven. See BlockedCompaniesService.
+ */
+export interface BlockedCompanyRow {
+  id: string;
+  /** What the candidate typed, verbatim. */
+  label: string;
+  reason: string | null;
+  createdAt: string;
+  /** Employers on record this covers. Empty is ordinary - the board may not be crawled. */
+  matches: string[];
+  /** Open postings it is keeping out right now. */
+  postings: number;
+}
+
+export interface BlockedCompaniesView {
+  entries: BlockedCompanyRow[];
+  /** Employer names on record, for the input's suggestion list. */
+  known: string[];
+  maxEntries: number;
+}
+
 /** One recurring screening question the candidate has already answered by hand. */
 export interface CustomAnswer {
   question: string;

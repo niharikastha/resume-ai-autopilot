@@ -19,6 +19,7 @@ import {
 import { api, type UserRow } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { num, relativeTime } from '@/lib/utils';
+import { AddUserCard } from './add-user';
 
 type AccountState = 'pending' | 'suspended' | 'active';
 
@@ -76,6 +77,10 @@ export default function UsersPage() {
       />
 
       <div className="space-y-5 px-4 pb-6 sm:px-6">
+        {/* Above the loading state, because it does not need the list to be
+            useful and collapses to a single button when it is not wanted. */}
+        <AddUserCard />
+
         {isLoading && <SkeletonCard rows={6} />}
         {error && <ErrorNote message={(error as Error).message} />}
 
@@ -231,7 +236,7 @@ export default function UsersPage() {
         <Card>
           <CardHeader
             title="How accounts are created"
-            subtitle="Two routes in, and only one of them can produce an administrator."
+            subtitle="Three routes in, and only one of them can produce an administrator."
           />
           <div className="space-y-4 px-5 py-4 text-sm text-[var(--ink-secondary)]">
             <p>
@@ -241,6 +246,16 @@ export default function UsersPage() {
               approved above. The role is always Candidate; the signup endpoint has
               no field for a role, so asking for administrator is not something
               the form can express.
+            </p>
+            <p>
+              <strong className="text-[var(--ink-primary)]">
+                Added from this screen.
+              </strong>{' '}
+              The form at the top, for someone who is not going to sign up
+              themselves. It produces the same account a signup does, minus the
+              wait — you have already made the decision approval exists to
+              record. Always a Candidate too: that endpoint has no role field
+              either, and sending one is refused rather than ignored.
             </p>
             <p>
               <strong className="text-[var(--ink-primary)]">The CLI.</strong> The
