@@ -1,0 +1,91 @@
+# Caddy in front of the api (127.0.0.1:3100) and the web app (127.0.0.1:3200).
+#
+# Caddy gets and renews TLS certificates on its own, so there is no certbot step
+# and no renewal cron. It needs ports 80 and 443, and port 80 must stay open even
+# though nothing is served on it - that is where the ACME challenge arrives.
+#
+# NOTHING HERE CHANGES THE BINDS. Both processes stay on 127.0.0.1, exactly as
+# ecosystem.config.js and main.ts intend: the only route in is through this proxy,
+# so a rule removed from this file closes a door rather than leaving one open. Keep
+# the firewall to 22/80/443 and that stays true.
+#
+# TWO LAYOUTS BELOW. Use ONE and delete the other.
+
+# ---------------------------------------------------------------------------
+# LAYOUT A - everything on one host. The recommended one.
+#
+# The web app and the API share an origin, so the session cookies stay
+# SameSite=lax and CORS never enters the picture. In the root .env:
+#
+#   APP_URL=https://app.example.com
+#   COOKIE_SAMESITE=lax
+#   TRUST_PROXY=1
+#
+# and in frontend/.env.local, which is gitignored and overrides the committed
+# dev default in frontend/.env:
+#
+#   NEXT_PUBLIC_API_URL=https://app.example.com    <- same origin, no /api suffix
+#
+# No /api on the end: the frontend's fetches already include it (src/lib/api.ts
+# calls `${API_URL}/api/auth/refresh`). It is baked in at build time, so it has
+# to be set before `npm run deploy`, not after.
+# ---------------------------------------------------------------------------
+app.example.com {
+	encode zstd gzip
+
+	# The API. This prefix has to match the one the backend actually serves on -
+	# every controller is @Controller('api/...') - and it must NOT be stripped:
+	# the refresh cookie's Path is /api/auth, so a rewrite here would make the
+	# browser stop sending it and sessions would end after 15 minutes.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3100
+	}
+
+	# Everything else is Next.
+	handle {
+		reverse_proxy 127.0.0.1:3200
+	}
+
+	# Uploaded resumes and generated PDFs are served by the api behind a session
+	# check, so there is no static file root here on purpose. Nothing in
+	# backend/uploads or backend/generated-resumes should ever be reachable
+	# without one - they are whole resumes, names and phone numbers included.
+
+	log {
+		output file /var/log/caddy/app.example.com.log
+	}
+}
+
+# ---------------------------------------------------------------------------
+# LAYOUT B - frontend hosted elsewhere (Vercel), API here.
+#
+# The browser now talks to two origins, so the cookie rules change and CORS
+# becomes load-bearing. Two sub-cases, and the difference matters:
+#
+#   Frontend at app.example.com (a custom domain on the same registrable domain)
+#     -> same SITE as api.example.com. Keep COOKIE_SAMESITE=lax.
+#        APP_URL=https://app.example.com
+#        CORS_EXTRA_ORIGINS=              (APP_URL is allowed automatically)
+#
+#   Frontend at jobpilot.vercel.app (a different site)
+#     -> cross-site. COOKIE_SAMESITE=none is REQUIRED or the cookie is dropped,
+#        and it costs you the CSRF protection lax was giving for free.
+#        APP_URL=https://jobpilot.vercel.app
+#
+# Either way: TRUST_PROXY=1, and on Vercel set NEXT_PUBLIC_API_URL to
+# https://api.example.com in the project's environment variables (Production
+# scope), then redeploy - it is inlined at build time, so an existing deployment
+# will not pick it up. Vercel's dashboard value wins over the committed
+# frontend/.env, which is what that file's own comment intends.
+# ---------------------------------------------------------------------------
+# api.example.com {
+# 	encode zstd gzip
+#
+# 	# No path handling: this host is the API and nothing else. A request for /
+# 	# gets whatever Nest says, which is a 404, and that is the correct answer.
+# 	reverse_proxy 127.0.0.1:3100
+#
+# 	log {
+# 		output file /var/log/caddy/api.example.com.log
+# 	}
+# }

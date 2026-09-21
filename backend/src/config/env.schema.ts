@@ -174,6 +174,64 @@ export const envSchema = z.object({
    */
   APP_URL: blank(z.string().url().default('http://localhost:3200')),
 
+  /**
+   * Extra browser origins allowed to call this API with credentials.
+   *
+   * APP_URL is always allowed, so this exists only for the case where the app is
+   * reached at a URL other than the one that goes into mail - a Vercel project
+   * that answers on both its generated domain and a custom one, or a staging
+   * front end pointed at this API.
+   *
+   * Comma-separated EXACT origins, scheme and host and port. A credentialed CORS
+   * response may not use `*` and must echo back one specific origin, which is why
+   * this is a list rather than a pattern. Empty by default: an origin permitted to
+   * read authenticated responses is a decision, not a convenience.
+   */
+  CORS_EXTRA_ORIGINS: blank(
+    z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((s) => s.trim().replace(/\/$/, ''))
+          .filter(Boolean),
+      ),
+  ),
+
+  /**
+   * SameSite on both session cookies.
+   *
+   * 'lax' is correct whenever the dashboard and this API are the same SITE, and
+   * "site" is more forgiving than "origin": different ports are the same site
+   * (localhost:3200 -> localhost:3100, which is why dev works), and so are
+   * different subdomains of one registrable domain (app.example.com ->
+   * api.example.com). Path-routing both behind one host is the same site too.
+   *
+   * 'none' is needed only when they are genuinely different sites - a front end on
+   * *.vercel.app calling an API on your own domain. It is strictly weaker: the
+   * cookie then rides along on cross-site requests, which is exactly the CSRF
+   * protection 'lax' was providing for free. So it is opt-in, never inferred, and
+   * the refinement below refuses the combination that silently does not work.
+   */
+  COOKIE_SAMESITE: blank(z.enum(['lax', 'none', 'strict']).default('lax')),
+
+  /**
+   * How many reverse proxies stand in front of this API.
+   *
+   * 0 means `req.ip` is the socket's peer, correct when nothing is in front.
+   * Behind Caddy on the same host it is 1, and Express then reads the last entry
+   * of X-Forwarded-For - the only one the proxy wrote itself.
+   *
+   * A COUNT, NOT A BOOLEAN. `trust proxy: true` trusts the entire header, and the
+   * header is supplied by the caller: a client sending `X-Forwarded-For: 1.2.3.4`
+   * would be rate-limited as 1.2.3.4 and could invent a fresh identity per
+   * request, which is indistinguishable from having no rate limit at all. Getting
+   * this number wrong in the other direction is safe but useless - every caller
+   * shares the proxy's IP and the first burst locks out everyone.
+   */
+  TRUST_PROXY: blank(z.coerce.number().int().min(0).default(0)),
+
   // Outbound mail. Optional at boot, like the LLM keys: the whole app should not
   // refuse to start because password-reset email is unconfigured. MailService
   // fails closed at the point of use instead, and says which vars are missing.
@@ -194,7 +252,75 @@ export const envSchema = z.object({
   MAIL_FROM: z.string().optional(),
 });
 
+/** Is this a URL the browser treats as a secure context despite plain http? */
+function isLocalhost(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one cross-field rule: a Secure cookie needs somewhere secure to go.
+ *
+ * `secure` is set on both session cookies in production, and additionally whenever
+ * SameSite is 'none' (the browser requires the pair). A Secure cookie sent to a
+ * plain-http origin is DISCARDED SILENTLY - no error anywhere, the login response
+ * is a 200, and the very next request is a 401. That failure looks like a bug in
+ * the session code and is nothing of the kind, so it is worth refusing to boot over.
+ *
+ * localhost is exempt because browsers treat it as a secure context, which is what
+ * makes the SSH-tunnel deployment in the README work: NODE_ENV=production, cookies
+ * marked Secure, reached over http://localhost:3200, and correct.
+ */
+const secureCookieNeedsHttps = envSchema.superRefine((env, ctx) => {
+  const cookiesWillBeSecure =
+    env.NODE_ENV === 'production' || env.COOKIE_SAMESITE === 'none';
+  if (!cookiesWillBeSecure) return;
+  if (env.APP_URL.startsWith('https://') || isLocalhost(env.APP_URL)) return;
+
+  ctx.addIssue({
+    code: 'custom',
+    path: ['APP_URL'],
+    message:
+      `is plain http on a public host (${env.APP_URL}), but session cookies ` +
+      `will be marked Secure (NODE_ENV=${env.NODE_ENV}, ` +
+      `COOKIE_SAMESITE=${env.COOKIE_SAMESITE}). The browser would discard them ` +
+      `and every request after login would 401. Use https, or reach the app over ` +
+      `localhost through a tunnel.`,
+  });
+});
+
 export type Env = z.infer<typeof envSchema>;
+
+/**
+ * Browser origins allowed to call this API with credentials.
+ *
+ * APP_URL is where the app actually is, so it is always in. The localhost patterns
+ * are added ONLY outside production: in dev the web app is on :3200 and the API on
+ * :3100, two origins, and the alternative is making every developer set a variable
+ * to get a working login. In production they would be a standing invitation to
+ * anything running on the operator's own machine, for no benefit.
+ *
+ * A function rather than a schema field because it is derived, and a derived value
+ * stored in config is a value that can disagree with the things it was derived from.
+ */
+export function allowedOrigins(
+  env: Pick<Env, 'NODE_ENV' | 'APP_URL' | 'CORS_EXTRA_ORIGINS'>,
+): (string | RegExp)[] {
+  const origins: (string | RegExp)[] = [
+    env.APP_URL.replace(/\/$/, ''),
+    ...env.CORS_EXTRA_ORIGINS,
+  ];
+  if (env.NODE_ENV !== 'production') {
+    origins.push(/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/);
+  }
+  return origins;
+}
 
 /**
  * Which LLM provider this process will use.
@@ -209,7 +335,9 @@ export function resolveLlmProvider(env: Env): 'claude' | 'gemini' {
 }
 
 export function validateEnv(raw: Record<string, unknown>): Env {
-  const parsed = envSchema.safeParse(raw);
+  // The refined schema, not the bare object: the cookie/https rule is cross-field
+  // and can only run after every individual value has a default applied.
+  const parsed = secureCookieNeedsHttps.safeParse(raw);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  ${i.path.join('.') || '(root)'}: ${i.message}`)
