@@ -1037,3 +1037,92 @@ export interface MarkedResult {
   /** Lines highlighted in it. Zero means the run re-worded nothing. */
   marked: number;
 }
+
+// --- the hand-kept tracker --------------------------------------------------
+
+/**
+ * Where a hand-tracked application got to.
+ *
+ * NOT the same vocabulary as `ApplicationRow.status`, and the two must not be mixed:
+ * those are states of a form-filling job the machine is doing, these are the answers a
+ * real employer gives back. STATUS_LABEL does not cover them, which is why the tracker
+ * page carries its own labels.
+ */
+export type TrackedStage =
+  | 'SAVED'
+  | 'APPLIED'
+  | 'SCREENING'
+  | 'INTERVIEWING'
+  | 'OFFER'
+  | 'REJECTED'
+  | 'GHOSTED';
+
+/** Somebody who might refer you. */
+export interface TrackedContact {
+  id: string;
+  name: string;
+  company: string | null;
+  role: string | null;
+  linkedInUrl: string | null;
+  email: string | null;
+  note: string | null;
+  /** Tracked applications naming them as the referrer. Also why a delete can be refused. */
+  referrals: number;
+  createdAt: string;
+}
+
+/** One application written down by hand. */
+export interface TrackedApplication {
+  id: string;
+  company: string;
+  role: string | null;
+  jobUrl: string | null;
+  careersUrl: string | null;
+  stage: TrackedStage;
+  /** `YYYY-MM-DD`. Null for a SAVED row, and for anything whose date was not recorded. */
+  appliedOn: string | null;
+  linkedInInviteSent: boolean;
+  referralGiven: boolean;
+  /** Null with `referralGiven` true is a real state: it happened, through whom is lost. */
+  referrer: { id: string; name: string; company: string | null } | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Both lists in one response, which every write also returns.
+ *
+ * ONE QUERY KEY for the two tabs, deliberately. The referrer picker on the applications
+ * tab is fed by `contacts`, so fetching them separately would let the picker and the
+ * People tab beside it disagree about who exists.
+ */
+export interface TrackerView {
+  applications: TrackedApplication[];
+  contacts: TrackedContact[];
+  maxApplications: number;
+  maxContacts: number;
+}
+
+/** A PATCH body. `null` clears a field; an absent key leaves it alone. */
+export interface TrackedApplicationPatch {
+  company?: string;
+  role?: string | null;
+  jobUrl?: string | null;
+  careersUrl?: string | null;
+  stage?: TrackedStage;
+  appliedOn?: string | null;
+  linkedInInviteSent?: boolean;
+  referralGiven?: boolean;
+  referrerId?: string | null;
+  notes?: string | null;
+}
+
+export interface TrackedContactPatch {
+  name?: string;
+  company?: string | null;
+  role?: string | null;
+  linkedInUrl?: string | null;
+  email?: string | null;
+  note?: string | null;
+}

@@ -1,6 +1,7 @@
 import {
   Briefcase,
   Building2,
+  ClipboardList,
   FileText,
   Gauge,
   History,
@@ -63,6 +64,16 @@ export const CANDIDATE_NAV: NavItem[] = [
     label: 'Applications',
     icon: Briefcase,
     hint: 'What you sent, and where it got to',
+  },
+  // Directly below Applications, because the pair only makes sense read together: that
+  // one is what this system did for you, this one is what you did yourself. The labels
+  // carry the distinction rather than the position, since the command palette shows them
+  // out of order - hence "by hand" in the hint and not just "tracker".
+  {
+    href: '/app/tracker',
+    label: 'My tracker',
+    icon: ClipboardList,
+    hint: 'Applications you made by hand, referrals, and who to ask',
   },
   {
     href: '/app/resumes',

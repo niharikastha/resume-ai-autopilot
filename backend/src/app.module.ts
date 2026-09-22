@@ -12,6 +12,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProfileModule } from './profile/profile.module';
 import { QueueModule } from './queue/queue.module';
 import { TailoringModule } from './tailoring/tailoring.module';
+import { TrackerModule } from './tracker/tracker.module';
 
 @Module({
   imports: [
@@ -40,6 +41,10 @@ import { TailoringModule } from './tailoring/tailoring.module';
     // controller - the CLI resolves ProfileService directly and does not need the
     // module to be registered here.
     ProfileModule,
+    // The hand-kept tracker. Nothing in the pipeline reads it and it reads nothing back -
+    // see the note in tracker.module.ts - so it is imported for its controller alone and
+    // the worker never loads it.
+    TrackerModule,
     ScheduleModule.forRoot(),
     // Phase 7. The 09:00 IST digest, the in-app copy and its API, and the
     // yes/no the digest collects. Imported here rather than only in the worker

@@ -81,18 +81,20 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  sessions        Session[]
-  passwordResets  PasswordReset[]
-  profiles        CandidateProfile[]
-  skillsReserve   SkillsReserve[]
-  matchScores     MatchScore[]
-  applications    Application[]
-  answers         ApplicationAnswers?
-  digests         DailyDigest[]
-  jobPreference   JobPreference?
+  sessions         Session[]
+  passwordResets   PasswordReset[]
+  profiles         CandidateProfile[]
+  skillsReserve    SkillsReserve[]
+  matchScores      MatchScore[]
+  applications     Application[]
+  answers          ApplicationAnswers?
+  digests          DailyDigest[]
+  jobPreference    JobPreference?
   blockedEmployers BlockedCompany[]
-  settingsTouched AppSetting[]
-  tailored        TailoredResume[]
+  settingsTouched  AppSetting[]
+  tailored         TailoredResume[]
+  tracked          TrackedApplication[]
+  contacts         TrackedContact[]
 
   @@index([role])
   /// The admin approval queue: pending accounts, oldest first.
@@ -1020,6 +1022,150 @@ model Application {
   @@index([status])
   @@index([userId, status])
   @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// THE HAND-KEPT TRACKER
+// ---------------------------------------------------------------------------
+
+/// Where an application you made yourself got to.
+///
+/// SEPARATE FROM ApplicationStatus, which describes the machine. QUEUED, PREPARED and
+/// AWAITING_REVIEW are states of a form-filling job; none of them is something a person
+/// ever learns about their own application. These are the answers an employer gives
+/// back - including the commonest one, which is nothing at all.
+enum TrackedStage {
+  SAVED /// found it, not applied yet: the careers page is bookmarked and that is all
+  APPLIED
+  SCREENING /// recruiter call, take-home, anything before people who would be colleagues
+  INTERVIEWING
+  OFFER
+  REJECTED
+  GHOSTED /// no answer, and long enough that you have stopped expecting one
+}
+
+/// Somebody who might put a word in for you.
+///
+/// A TABLE RATHER THAN A NAME TYPED ON EACH APPLICATION. The same person refers you
+/// three times, and their LinkedIn URL is something you look up once. Typed per row,
+/// "Priya Nair", "priya" and "Priya (Zoho)" become three people who cannot be counted,
+/// and the question this list exists to answer - who have I actually asked, and how
+/// often - stops being answerable.
+///
+/// NO FOREIGN KEY TO Company, for the reason BlockedCompany has none: a contact's
+/// employer is very often one no board here has been crawled for, so a picker would make
+/// the contact unstatable until exactly too late.
+///
+/// NO UNIQUENESS ON THE NAME, deliberately. Two people really can be called Priya Nair,
+/// and a list that refuses the second one is a list that cannot describe the referral
+/// that actually happened. The picker shows "name — company" so the duplicate that IS a
+/// mistake is visible, which is the safeguard this needs rather than a constraint.
+model TrackedContact {
+  id     String @id @default(uuid())
+  userId String
+
+  name String
+
+  /// Where they work, as words. Shown beside the name in the referrer picker, because
+  /// two contacts with one name are told apart by the company and by nothing else.
+  company String?
+
+  /// Their title, not yours.
+  role String?
+
+  linkedInUrl String?
+  email       String?
+
+  /// How you know them. The line that makes this list mean anything read six months
+  /// later, when "Rahul S" on its own means nobody.
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referred TrackedApplication[]
+
+  @@index([userId, name])
+  @@map("tracked_contacts")
+}
+
+/// One application you made yourself, written down by hand.
+///
+/// WHY THIS IS NOT A ROW IN `applications`. Every row there has a jobId and a companyId -
+/// a posting this system crawled and an employer it knows - and the unique index on
+/// (userId, companyId, normalizedTitle) is the structural guard that stops the robot
+/// applying twice. Neither survives contact with a hand-kept log. The job forwarded to
+/// you on WhatsApp has no JobPosting row and may never get one, and applying twice - once
+/// in March, again in November - is something people genuinely do and a tracker must be
+/// able to record. Making `applications` accept nullable jobs would cost that duplicate
+/// guard, which is the invariant in the pipeline most worth keeping.
+///
+/// So the two tables sit side by side and neither pretends to be the other: `applications`
+/// is what the machine did, this is what you did.
+model TrackedApplication {
+  id     String @id @default(uuid())
+  userId String
+
+  /// Free text, and the only required field. Everything else about an application can
+  /// genuinely be unknown at the moment you are typing it in. The employer's name cannot.
+  company String
+
+  /// The title as they advertised it.
+  role String?
+
+  /// The posting, and the employer's jobs page. BOTH, not one, because they rot at
+  /// different speeds and for different reasons: the posting 404s the week the role is
+  /// filled, while the careers page is still there a year later and is where you go to
+  /// see whether it reopened. Keeping only the first loses the trail; keeping only the
+  /// second loses what you actually applied to.
+  jobUrl     String?
+  careersUrl String?
+
+  stage TrackedStage @default(APPLIED)
+
+  /// The day you sent it. @db.Date rather than a timestamp: nobody remembers the hour,
+  /// and storing midnight-in-some-timezone as though it were precise is how a date
+  /// shifts by a day for a reader sitting in another one.
+  appliedOn DateTime? @db.Date
+
+  /// Whether you sent the recruiter or the hiring manager a LinkedIn request. A boolean
+  /// and not a date, because the only thing anybody checks is "did I already" - and the
+  /// follow-up question is answered by opening LinkedIn, never by this row.
+  linkedInInviteSent Boolean @default(false)
+
+  /// Whether a referral actually went in: somebody submitted your name, as opposed to you
+  /// having asked and heard nothing back.
+  referralGiven Boolean @default(false)
+
+  /// Who did it.
+  ///
+  /// NULL with `referralGiven` true is legitimate - you know a referral happened and
+  /// cannot remember through whom, and a tracker that refuses that forces a wrong answer
+  /// instead of an incomplete one. The reverse is not legitimate, and a CHECK refuses it:
+  /// a named referrer on a row that says no referral was given is a contradiction, not a
+  /// partial record. See the migration.
+  referrerId String?
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Restrict, NOT SetNull. Deleting a contact named on four applications would quietly
+  /// turn four "referred by Priya" into four "referred by nobody", and afterwards there
+  /// is nothing left to show that it happened. The service refuses the delete and names
+  /// the applications instead.
+  referrer TrackedContact? @relation(fields: [referrerId], references: [id], onDelete: Restrict)
+
+  /// NO UNIQUE INDEX on (userId, company, role), unlike `applications` above. See the
+  /// model note: reapplying is a real thing this log has to be able to hold.
+  @@index([userId, stage])
+  @@index([userId, appliedOn])
+  @@index([referrerId])
+  @@map("tracked_applications")
 }
 
 // ---------------------------------------------------------------------------
