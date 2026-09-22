@@ -36,6 +36,18 @@ export default function TrackerPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('applications');
 
+  /**
+   * The person whose applications are being shown, set by clicking their count on the People
+   * tab. Lives here rather than in either tab because it is the one piece of state the two
+   * share: it is written on one side and read on the other.
+   *
+   * The count is worth following rather than just reading. "Priya: 3 referrals" answers how
+   * often you have leaned on her but not whether any of it went anywhere - and that is the
+   * question you actually have before asking a fourth time. The three rows say it: two
+   * rejections and a no-answer is a different situation from two interviews.
+   */
+  const [focusPerson, setFocusPerson] = useState<string | null>(null);
+
   const tracker = useQuery({
     queryKey: ['me', 'tracker'],
     queryFn: () => api.get<TrackerView>('/api/me/tracker'),
@@ -94,7 +106,14 @@ export default function TrackerPage() {
               key={key}
               type="button"
               aria-pressed={tab === key}
-              onClick={() => setTab(key)}
+              // Clicking a tab here drops the person filter. This control means "show me
+              // this section", and a section that silently kept showing three of forty rows
+              // because of a click made two minutes ago on the other tab is the kind of
+              // filter people conclude their data is missing from.
+              onClick={() => {
+                setTab(key);
+                setFocusPerson(null);
+              }}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-[var(--r-sm)] px-3 py-1.5 text-[13px] font-medium transition-colors',
                 tab === key
@@ -118,15 +137,28 @@ export default function TrackerPage() {
 
         {view &&
           (tab === 'applications' ? (
-            <TrackedApplicationsTab view={view} onSettled={onSettled} />
+            <TrackedApplicationsTab
+              view={view}
+              onSettled={onSettled}
+              focusPerson={focusPerson}
+              onClearFocus={() => setFocusPerson(null)}
+            />
           ) : (
-            <PeopleTab view={view} onSettled={onSettled} />
+            <PeopleTab
+              view={view}
+              onSettled={onSettled}
+              onShowApplications={(contactId) => {
+                setFocusPerson(contactId);
+                setTab('applications');
+              }}
+            />
           ))}
 
         {view && view.applications.length > 0 && (
           <p className="flex flex-wrap items-center gap-2 px-1 text-xs text-[var(--ink-muted)]">
             <Badge tone="neutral">
-              {view.applications.length} tracked · {view.contacts.length} people
+              {view.applications.length} tracked · {view.contacts.length}{' '}
+              {view.contacts.length === 1 ? 'person' : 'people'}
             </Badge>
             Kept only here. Nothing in this list is read by discovery, matching or the
             morning digest.

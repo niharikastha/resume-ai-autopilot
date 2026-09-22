@@ -8,6 +8,7 @@ import {
   Linkedin,
   Plus,
   Trash2,
+  UserPlus,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -162,6 +163,196 @@ function changes(
   return patch;
 }
 
+/** Creates a person and hands back the row, or null when the server refused. */
+type CreatePerson = (
+  name: string,
+  company: string,
+) => Promise<TrackedContact | null>;
+
+/**
+ * Who referred you: somebody from the People tab, or somebody typed in right here.
+ *
+ * THE "NEW PERSON" PATH IS HERE AND NOT ONLY ON THE PEOPLE TAB, because of when the question
+ * gets asked. This form is open because a friend forwarded a posting an hour ago, and being
+ * told to leave it, go to another tab, add them, come back and start again is exactly how the
+ * field ends up on "I do not remember" for somebody remembered perfectly well.
+ *
+ * IT STILL WRITES A REAL PERSON rather than a name onto this row. The whole reason people are
+ * a list is that Priya Nair is one person with a count instead of a string spelled three ways
+ * - so the shortcut has to create the same record the other tab would, or it undoes that
+ * within a week. Name only, with the company optional and nothing else asked: a second full
+ * form standing between somebody and the row they came here to save does not get filled in,
+ * and the remaining details can be added on the People tab whenever they matter.
+ */
+function ReferrerPicker({
+  form,
+  set,
+  setReferrer,
+  contacts,
+  createPerson,
+  idPrefix,
+}: {
+  form: ApplicationForm;
+  set: (next: ApplicationForm) => void;
+  /**
+   * Picks the referrer through the owner's own state setter rather than through `set`.
+   *
+   * `set({ ...form, referrerId })` would write back the `form` captured when this rendered,
+   * which is a round trip old by the time the new person comes back - so a character typed
+   * into the notes while waiting would be silently reverted. The owner can apply an updater
+   * to whatever the current value is; this component cannot.
+   */
+  setReferrer: (contactId: string) => void;
+  contacts: TrackedContact[];
+  createPerson: CreatePerson;
+  idPrefix: string;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const field = (suffix: string) => `${idPrefix}-${suffix}`;
+
+  const create = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    const created = await createPerson(name.trim(), company.trim());
+    setSaving(false);
+    // null means the server refused and has already said why, so the sub-form stays open
+    // with what was typed still in it rather than closing over a failure.
+    if (!created) return;
+    setReferrer(created.id);
+    setName('');
+    setCompany('');
+    setAdding(false);
+  };
+
+  return (
+    <div className="pl-7">
+      <label
+        htmlFor={field('referrer')}
+        className="mb-1 block text-xs text-[var(--ink-muted)]"
+      >
+        Who
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          id={field('referrer')}
+          className={cn(controlClass, 'w-full sm:max-w-sm')}
+          value={form.referrerId}
+          onChange={(event) => set({ ...form, referrerId: event.target.value })}
+        >
+          {/* Not "— none —". Leaving this unset records a referral whose source you cannot
+              remember, which is a real answer and worth saying out loud, so that nobody
+              invents a name to satisfy the dropdown. */}
+          <option value="">I do not remember</option>
+          {contacts.map((contact) => (
+            <option key={contact.id} value={contact.id}>
+              {contact.company
+                ? `${contact.name} — ${contact.company}`
+                : contact.name}
+            </option>
+          ))}
+        </select>
+        {/* The label does not become "Cancel" when it opens, which is the reflex. There is
+            already a Cancel on this panel, for the whole application, and a second one an
+            inch from the referral checkbox reads as "cancel the referral". So the button
+            keeps saying what it opens and the sub-form carries its own way out. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={UserPlus}
+          aria-expanded={adding}
+          onClick={() => setAdding(!adding)}
+        >
+          Someone new
+        </Button>
+      </div>
+
+      {adding && (
+        <div className="mt-2 flex flex-wrap items-end gap-2 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--surface-raised)] p-3">
+          <div className="min-w-40 grow">
+            <label
+              htmlFor={field('new-name')}
+              className="mb-1 block text-xs text-[var(--ink-muted)]"
+            >
+              Their name
+            </label>
+            <input
+              id={field('new-name')}
+              className={cn(controlClass, 'w-full')}
+              placeholder="Priya Nair"
+              value={name}
+              maxLength={120}
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+              // Enter submits, because this is one box inside a bigger form and reaching for
+              // the mouse to confirm a single name is the friction this shortcut exists to
+              // remove. It is not a <form>, so nothing happens by default.
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void create();
+                }
+              }}
+            />
+          </div>
+          <div className="min-w-40 grow">
+            <label
+              htmlFor={field('new-company')}
+              className="mb-1 block text-xs text-[var(--ink-muted)]"
+            >
+              Where they work{' '}
+              <span className="text-[var(--ink-muted)]">(optional)</span>
+            </label>
+            <input
+              id={field('new-company')}
+              className={cn(controlClass, 'w-full')}
+              placeholder={form.company.trim() || 'Zoho'}
+              value={company}
+              maxLength={120}
+              onChange={(event) => setCompany(event.target.value)}
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            busy={saving}
+            disabled={name.trim().length === 0}
+            onClick={() => void create()}
+          >
+            Add and pick
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={X}
+            onClick={() => {
+              setAdding(false);
+              setName('');
+              setCompany('');
+            }}
+          >
+            Never mind
+          </Button>
+          <p className="w-full text-xs text-[var(--ink-muted)]">
+            Goes on your People tab as well, so you can find them again and see everything
+            they have referred you for.
+          </p>
+        </div>
+      )}
+
+      {contacts.length === 0 && !adding && (
+        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+          Nobody on your list yet — “Someone new” adds them without losing what you have
+          typed here.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * The fields of one application, shared by the add form and every edit panel.
  *
@@ -172,12 +363,16 @@ function changes(
 function ApplicationFields({
   form,
   set,
+  setReferrer,
   contacts,
+  createPerson,
   idPrefix,
 }: {
   form: ApplicationForm;
   set: (next: ApplicationForm) => void;
+  setReferrer: (contactId: string) => void;
   contacts: TrackedContact[];
+  createPerson: CreatePerson;
   /** Ids have to be unique per panel: several of these can be open at once. */
   idPrefix: string;
 }) {
@@ -350,40 +545,14 @@ function ApplicationFields({
         </label>
 
         {form.referralGiven && (
-          <div className="pl-7">
-            <label
-              htmlFor={field('referrer')}
-              className="mb-1 block text-xs text-[var(--ink-muted)]"
-            >
-              Who
-            </label>
-            <select
-              id={field('referrer')}
-              className={cn(controlClass, 'w-full sm:max-w-sm')}
-              value={form.referrerId}
-              onChange={(event) =>
-                set({ ...form, referrerId: event.target.value })
-              }
-            >
-              {/* Not "— none —". Leaving this unset records a referral whose source you
-                  cannot remember, which is a real answer and worth saying out loud, so
-                  that nobody invents a name to satisfy the dropdown. */}
-              <option value="">I do not remember</option>
-              {contacts.map((contact) => (
-                <option key={contact.id} value={contact.id}>
-                  {contact.company
-                    ? `${contact.name} — ${contact.company}`
-                    : contact.name}
-                </option>
-              ))}
-            </select>
-            {contacts.length === 0 && (
-              <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                Nobody on your list yet — add them on the People tab and they will
-                appear here.
-              </p>
-            )}
-          </div>
+          <ReferrerPicker
+            form={form}
+            set={set}
+            setReferrer={setReferrer}
+            contacts={contacts}
+            createPerson={createPerson}
+            idPrefix={idPrefix}
+          />
         )}
       </div>
 
@@ -442,9 +611,14 @@ function LinkChip({ href, label }: { href: string | null; label: string }) {
 export function TrackedApplicationsTab({
   view,
   onSettled,
+  focusPerson,
+  onClearFocus,
 }: {
   view: TrackerView;
   onSettled: (next: TrackerView) => void;
+  /** A contact id to narrow the list to, set by clicking their count on the People tab. */
+  focusPerson: string | null;
+  onClearFocus: () => void;
 }) {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
@@ -500,6 +674,37 @@ export function TrackedApplicationsTab({
     onError: (err) => toast.error((err as Error).message),
   });
 
+  /**
+   * Adds a person from inside the referrer picker. The same endpoint the People tab posts to.
+   *
+   * THE NEW ROW IS FOUND BY DIFFING IDS, because every write on this screen answers with the
+   * whole view and none of them says which row was just made. That is worth keeping: one
+   * response shape means the cache is replaced the same way by seven different calls, and the
+   * alternative - a created id bolted onto a view - is a field only this one caller reads.
+   * The diff is exact for a single client, and if it ever came back empty the person is still
+   * saved and still in the dropdown; only the automatic pick would be missed.
+   */
+  const addPerson = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api.post<TrackerView>('/api/me/tracker/contacts', body),
+    onError: (err) => toast.error((err as Error).message),
+  });
+
+  const createPerson: CreatePerson = async (name, company) => {
+    const before = new Set(view.contacts.map((contact) => contact.id));
+    try {
+      const next = await addPerson.mutateAsync({
+        name,
+        ...(company ? { company } : {}),
+      });
+      settle(next);
+      return next.contacts.find((contact) => !before.has(contact.id)) ?? null;
+    } catch {
+      // Already reported by onError. Returning null keeps the sub-form open.
+      return null;
+    }
+  };
+
   const full = view.applications.length >= view.maxApplications;
   const ready = form.company.trim().length > 0;
 
@@ -541,13 +746,31 @@ export function TrackedApplicationsTab({
     edit.mutate({ id: row.id, patch });
   };
 
-  const shown = stageFilter
-    ? view.applications.filter((row) => row.stage === stageFilter)
+  /**
+   * The person being filtered on, resolved against the list rather than trusted.
+   *
+   * An id that no longer names anybody - they were removed, or the whole view was replaced
+   * while this was on screen - filters nothing. A filter that hides rows while naming nobody
+   * is indistinguishable from data having gone missing.
+   */
+  const focused = focusPerson
+    ? (view.contacts.find((contact) => contact.id === focusPerson) ?? null)
+    : null;
+
+  // Everything the person filter allows. The two filters are deliberately not symmetrical:
+  // this one comes from the other tab and is dismissed with the chip, the stage one is the
+  // dropdown - so the stage counts are taken over THIS set. The numbers beside each stage
+  // have to say what choosing it would actually reveal, and with somebody in focus that is
+  // their rows and not all forty.
+  const inScope = focused
+    ? view.applications.filter((row) => row.referrer?.id === focused.id)
     : view.applications;
 
-  // Counted over everything rather than over `shown`, so the filter dropdown can say how
-  // many rows each option would reveal instead of only describing the current one.
-  const counts = view.applications.reduce<Record<string, number>>(
+  const shown = stageFilter
+    ? inScope.filter((row) => row.stage === stageFilter)
+    : inScope;
+
+  const counts = inScope.reduce<Record<string, number>>(
     (acc, row) => ({ ...acc, [row.stage]: (acc[row.stage] ?? 0) + 1 }),
     {},
   );
@@ -577,7 +800,15 @@ export function TrackedApplicationsTab({
             <ApplicationFields
               form={form}
               set={setForm}
+              setReferrer={(contactId) =>
+                setForm((current) => ({
+                  ...current,
+                  referralGiven: true,
+                  referrerId: contactId,
+                }))
+              }
               contacts={view.contacts}
+              createPerson={createPerson}
               idPrefix="new-application"
             />
             <div className="flex flex-wrap items-center gap-3">
@@ -604,15 +835,34 @@ export function TrackedApplicationsTab({
             aria-label="Filter by stage"
             className={controlClass}
           >
-            <option value="">
-              Every stage ({view.applications.length})
-            </option>
+            <option value="">Every stage ({inScope.length})</option>
             {STAGE_ORDER.filter((stage) => counts[stage]).map((stage) => (
               <option key={stage} value={stage}>
                 {STAGE_LABEL[stage]} ({counts[stage]})
               </option>
             ))}
           </select>
+
+          {/* The person filter as a removable chip rather than a second dropdown. It was
+              arrived at from the other tab, so it has to be visible enough to explain why
+              this list is short, and it has to come off in one click. */}
+          {focused && (
+            <button
+              type="button"
+              onClick={onClearFocus}
+              aria-label={`Showing only applications ${focused.name} referred — clear this filter`}
+              className="inline-flex items-center gap-1.5 rounded-[var(--r-full)] px-2.5 py-1 text-xs font-medium text-[var(--ink-primary)] transition-opacity hover:opacity-80"
+              style={{
+                background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+                boxShadow:
+                  'inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent)',
+              }}
+            >
+              Referred by {focused.name}
+              <X size={12} aria-hidden />
+            </button>
+          )}
+
           {full && (
             <p className="text-xs" style={{ color: 'var(--status-warning)' }}>
               That is {view.maxApplications} applications, which is as many as this list
@@ -630,8 +880,18 @@ export function TrackedApplicationsTab({
         ) : shown.length === 0 ? (
           <EmptyState
             icon={ClipboardList}
-            title="Nothing at that stage"
-            detail="Choose “Every stage” to see the rest of the list."
+            title={
+              focused ? `Nothing here for ${focused.name}` : 'Nothing at that stage'
+            }
+            // Which filter to undo, named. "No results" leaves the reader to work out
+            // which of the two controls above is hiding their rows.
+            detail={
+              focused && stageFilter
+                ? `${focused.name} referred you elsewhere, but nothing at that stage. Choose “Every stage”, or drop the filter on their name.`
+                : focused
+                  ? `Nothing names ${focused.name} as the referrer any more — the referral was probably cleared since. Dismiss the filter on their name to see the whole list.`
+                  : 'Choose “Every stage” to see the rest of the list.'
+            }
           />
         ) : (
           <Table
@@ -673,7 +933,19 @@ export function TrackedApplicationsTab({
                         <ApplicationFields
                           form={editForm}
                           set={setEditForm}
+                          setReferrer={(contactId) =>
+                            setEditForm((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    referralGiven: true,
+                                    referrerId: contactId,
+                                  }
+                                : current,
+                            )
+                          }
                           contacts={view.contacts}
+                          createPerson={createPerson}
                           idPrefix={`edit-${row.id}`}
                         />
                         <div className="flex flex-wrap gap-2">

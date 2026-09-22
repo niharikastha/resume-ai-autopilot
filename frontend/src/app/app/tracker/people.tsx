@@ -2,6 +2,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import {
+  ArrowRight,
   ExternalLink,
   Mail,
   Plus,
@@ -215,9 +216,12 @@ function ContactFields({
 export function PeopleTab({
   view,
   onSettled,
+  onShowApplications,
 }: {
   view: TrackerView;
   onSettled: (next: TrackerView) => void;
+  /** Hands the reader over to the Applications tab, filtered to this person's referrals. */
+  onShowApplications: (contactId: string) => void;
 }) {
   const toast = useToast();
   const [adding, setAdding] = useState(false);
@@ -299,7 +303,7 @@ export function PeopleTab({
       <Card>
         <CardHeader
           title="People who could refer you"
-          subtitle="Added by hand, because nothing here can be discovered: who owes you a favour is not on a careers page. Once somebody is on this list they can be picked as the referrer on any application."
+          subtitle="Added by hand, because nothing here can be discovered: who owes you a favour is not on a careers page. Once somebody is on this list they can be picked as the referrer on any application — and their count below opens the ones they referred."
           icon={Users}
           action={
             <Button
@@ -363,14 +367,33 @@ export function PeopleTab({
                         {/* The count, always, including zero. A list where only the
                             well-used contacts carry a number reads as though the rest have
                             never been asked for anything, which may be the opposite of
-                            true - they may be the ones still worth asking. */}
-                        <Badge tone={contact.referrals > 0 ? 'good' : 'neutral'}>
-                          {contact.referrals === 0
-                            ? 'no referrals yet'
-                            : `${contact.referrals} referral${
-                                contact.referrals === 1 ? '' : 's'
-                              }`}
-                        </Badge>
+                            true - they may be the ones still worth asking.
+
+                            A button once there is something behind it, plain text when there
+                            is not: a zero that looks clickable and then shows an empty list
+                            has taught the reader nothing and cost them the tab they were
+                            on. */}
+                        {contact.referrals === 0 ? (
+                          <Badge tone="neutral">no referrals yet</Badge>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onShowApplications(contact.id)}
+                            title={`Show the applications ${contact.name} referred`}
+                            // Spelled out for a screen reader, where "3 referrals" on its own
+                            // gives no hint that it goes anywhere.
+                            aria-label={`Show the ${contact.referrals} application${
+                              contact.referrals === 1 ? '' : 's'
+                            } ${contact.name} referred`}
+                            className="rounded-[var(--r-full)] transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                          >
+                            <Badge tone="good">
+                              {contact.referrals} referral
+                              {contact.referrals === 1 ? '' : 's'}
+                              <ArrowRight size={10} className="ml-1" aria-hidden />
+                            </Badge>
+                          </button>
+                        )}
                       </p>
 
                       {(contact.role || contact.company) && (
