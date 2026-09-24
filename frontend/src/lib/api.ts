@@ -5,7 +5,7 @@
  * there is no token for this code to attach, by design (PLAN-v2 2A.6).
  */
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100';
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3100";
 
 export class ApiError extends Error {
   constructor(
@@ -13,7 +13,7 @@ export class ApiError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 
   /** Not signed in, or the session expired. */
@@ -44,8 +44,8 @@ let refreshing: Promise<boolean> | null = null;
 
 function refreshSession(): Promise<boolean> {
   refreshing ??= fetch(`${API_URL}/api/auth/refresh`, {
-    method: 'POST',
-    credentials: 'include',
+    method: "POST",
+    credentials: "include",
   })
     .then((res) => res.ok)
     .catch(() => false)
@@ -71,9 +71,9 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
 
   return fetch(`${API_URL}${path}`, {
     ...init,
-    credentials: 'include',
+    credentials: "include",
     headers: {
-      ...(init?.body && !isForm ? { 'content-type': 'application/json' } : {}),
+      ...(init?.body && !isForm ? { "content-type": "application/json" } : {}),
       ...init?.headers,
     },
   });
@@ -104,8 +104,8 @@ async function fetchOk(
   if (
     res.status === 401 &&
     allowRefresh &&
-    !path.startsWith('/api/auth/login') &&
-    !path.startsWith('/api/auth/refresh')
+    !path.startsWith("/api/auth/login") &&
+    !path.startsWith("/api/auth/refresh")
   ) {
     if (await refreshSession()) {
       res = await send(path, init);
@@ -116,7 +116,7 @@ async function fetchOk(
     let message = res.statusText;
     try {
       const body = (await res.json()) as { message?: string | string[] };
-      if (Array.isArray(body.message)) message = body.message.join('; ');
+      if (Array.isArray(body.message)) message = body.message.join("; ");
       else if (body.message) message = body.message;
     } catch {
       // Non-JSON error body; the status line is all we have.
@@ -137,21 +137,21 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
-      method: 'POST',
+      method: "POST",
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, {
-      method: 'PATCH',
+      method: "PATCH",
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   /** For a body that IS the whole resource - see /api/me/preferences. */
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, {
-      method: 'PUT',
+      method: "PUT",
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
-  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 
   /**
    * A multipart upload, and the ONE call that must not go through `api.post`.
@@ -161,10 +161,10 @@ export const api = {
    * handled in `send`, which leaves it alone for FormData so the browser can add
    * the boundary parameter only it knows.
    */
-  upload: <T>(path: string, file: File, field = 'file') => {
+  upload: <T>(path: string, file: File, field = "file") => {
     const form = new FormData();
     form.append(field, file);
-    return request<T>(path, { method: 'POST', body: form });
+    return request<T>(path, { method: "POST", body: form });
   },
 
   /**
@@ -190,7 +190,7 @@ export const api = {
 
 // --- shapes the API returns -------------------------------------------------
 
-export type Role = 'ADMIN' | 'USER';
+export type Role = "ADMIN" | "USER";
 
 export interface SessionUser {
   id: string;
@@ -206,7 +206,7 @@ export interface FunnelStage {
   phase: string;
 }
 
-export type SourceStatus = 'healthy' | 'degraded' | 'dead';
+export type SourceStatus = "healthy" | "degraded" | "dead";
 
 export interface SourceHealth {
   source: string;
@@ -217,7 +217,7 @@ export interface SourceHealth {
 }
 
 export interface AdminOverview {
-  scope: 'admin';
+  scope: "admin";
   kpis: {
     companies: number;
     activeCompanies: number;
@@ -236,7 +236,7 @@ export interface AdminOverview {
 }
 
 export interface UserOverview {
-  scope: 'user';
+  scope: "user";
   profile: {
     id: string;
     label: string;
@@ -351,10 +351,10 @@ export interface StatedAnswers {
  * fifth required answer added server-side shows up ugly rather than invisibly.
  */
 export const REQUIRED_ANSWER_LABEL: Record<string, string> = {
-  workAuthorization: 'Work authorisation',
-  needsSponsorship: 'Whether you need sponsorship',
-  noticePeriodDays: 'Notice period',
-  expectedCtcLpa: 'Expected CTC',
+  workAuthorization: "Work authorisation",
+  needsSponsorship: "Whether you need sponsorship",
+  noticePeriodDays: "Notice period",
+  expectedCtcLpa: "Expected CTC",
 };
 
 /**
@@ -430,7 +430,7 @@ export interface JobRow {
   salaryMin: string | null;
   salaryMax: string | null;
   salaryCurrency: string | null;
-  salaryPeriod: 'YEAR' | 'MONTH' | 'DAY' | 'HOUR' | null;
+  salaryPeriod: "YEAR" | "MONTH" | "DAY" | "HOUR" | null;
   company: { name: string; tier: string; atsType: string } | null;
   matchScores: { score: number; verdict: string }[];
 }
@@ -491,7 +491,7 @@ export interface CompanyScan {
   atsType: string;
   source: string;
   token: string | null;
-  via: 'ats' | 'careers-page';
+  via: "ats" | "careers-page";
   existing: { id: string; name: string; slug: string } | null;
   postings: ScannedPosting[];
   suitable: number;
@@ -550,7 +550,7 @@ export interface UserRow {
 
 // --- the resume library -----------------------------------------------------
 
-export type AtomKind = 'BULLET' | 'SKILL' | 'ROLE' | 'EDU';
+export type AtomKind = "BULLET" | "SKILL" | "ROLE" | "EDU";
 
 /** How many pieces of each kind a resume produced. */
 export type AtomCounts = Record<AtomKind, number>;
@@ -668,7 +668,7 @@ export interface UploadResult {
 // --- the suggestions list ---------------------------------------------------
 
 /** How far a matching run has got. Not BullMQ's vocabulary - see MatchesService. */
-export type RunState = 'idle' | 'queued' | 'running' | 'done' | 'failed';
+export type RunState = "idle" | "queued" | "running" | "done" | "failed";
 
 export interface MatchRunStatus {
   state: RunState;
@@ -762,7 +762,7 @@ export interface Integrations {
 // --- the morning digest (phase 7) -------------------------------------------
 
 /** What the candidate can say about a posting from the digest. */
-export type MatchDecision = 'UNDECIDED' | 'WANTED' | 'NOT_WANTED';
+export type MatchDecision = "UNDECIDED" | "WANTED" | "NOT_WANTED";
 
 /**
  * One posting as the digest names it.
@@ -838,8 +838,8 @@ export interface DigestRow {
 export interface DigestSendResult {
   id: string;
   day: string;
-  email: 'sent' | 'skipped' | 'failed';
-  telegram: 'sent' | 'skipped' | 'failed';
+  email: "sent" | "skipped" | "failed";
+  telegram: "sent" | "skipped" | "failed";
   notes: string[];
 }
 
@@ -878,7 +878,7 @@ export interface PreviewResult {
  * of it — which is also why the picker saves rather than previews: applications go out in
  * whichever one is chosen.
  */
-export type ResumeTemplate = 'CLASSIC' | 'COMPACT' | 'MODERN';
+export type ResumeTemplate = "CLASSIC" | "COMPACT" | "MODERN";
 
 /**
  * One template on offer, described by the server.
@@ -908,7 +908,7 @@ export interface TemplateChoice {
  */
 export interface ResumeSuggestion {
   atomId: string;
-  kind: 'rewrite' | 'advice';
+  kind: "rewrite" | "advice";
   /** The piece as it stands today, so the screen can show both sides. */
   current: string;
   text: string;
@@ -979,7 +979,7 @@ export interface TailoredSummary {
  */
 export interface DiffSegment {
   text: string;
-  change: 'same' | 'added' | 'removed';
+  change: "same" | "added" | "removed";
 }
 
 /** One piece of the resume the tailored version re-worded. */
@@ -1049,13 +1049,13 @@ export interface MarkedResult {
  * page carries its own labels.
  */
 export type TrackedStage =
-  | 'SAVED'
-  | 'APPLIED'
-  | 'SCREENING'
-  | 'INTERVIEWING'
-  | 'OFFER'
-  | 'REJECTED'
-  | 'GHOSTED';
+  | "SAVED"
+  | "APPLIED"
+  | "SCREENING"
+  | "INTERVIEWING"
+  | "OFFER"
+  | "REJECTED"
+  | "GHOSTED";
 
 /** Somebody who might refer you. */
 export interface TrackedContact {
@@ -1125,4 +1125,35 @@ export interface TrackedContactPatch {
   linkedInUrl?: string | null;
   email?: string | null;
   note?: string | null;
+}
+
+// --- Gmail sync, which feeds the tracker suggestions -------------------------
+
+/**
+ * One thing an email said, waiting for the candidate's yes or no.
+ *
+ * `application` null means accepting it ADDS a row; otherwise it moves that row to
+ * `proposedStage`. Either way nothing has changed yet - see GmailSyncService.
+ */
+export interface EmailSuggestion {
+  id: string;
+  receivedAt: string;
+  fromAddress: string;
+  subject: string;
+  company: string;
+  role: string | null;
+  proposedStage: TrackedStage;
+  application: { id: string; company: string; stage: TrackedStage } | null;
+  /** A sentence quoted from the email. */
+  evidence: string;
+}
+
+export interface GmailStatus {
+  /** False when the server has no Google credentials; the panel explains instead. */
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  suggestions: EmailSuggestion[];
 }

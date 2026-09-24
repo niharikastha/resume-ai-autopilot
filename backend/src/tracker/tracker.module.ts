@@ -15,13 +15,22 @@
  * add is the conversation about whether a log that writes to the machine is still a log.
  *
  * NO PROVIDER IS EXPORTED, for the same reason. Nothing outside should be reaching in.
+ *
+ * THE ONE IMPORT IS LlmModule, for Gmail sync (gmail/), and it points inward: an email
+ * is read so the TRACKER can suggest a change to itself. Nothing it learns leaves this
+ * module, and even here it only proposes - the candidate's Apply is what writes a row.
  */
 import { Module } from '@nestjs/common';
+import { LlmModule } from '../llm/llm.module';
+import { GmailSyncService } from './gmail/gmail-sync.service';
+import { GmailController } from './gmail/gmail.controller';
+import { GmailScheduler } from './gmail/gmail.scheduler';
 import { TrackerController } from './tracker.controller';
 import { TrackerService } from './tracker.service';
 
 @Module({
-  controllers: [TrackerController],
-  providers: [TrackerService],
+  imports: [LlmModule],
+  controllers: [TrackerController, GmailController],
+  providers: [TrackerService, GmailSyncService, GmailScheduler],
 })
 export class TrackerModule {}

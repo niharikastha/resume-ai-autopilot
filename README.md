@@ -6,6 +6,48 @@ It finds openings that match your profile, rewrites your resume for each one, an
 fills the application form up to - never including - the submit button. See
 `PLAN-v2.txt` for the phase plan and the reasoning behind each constraint.
 
+## Screenshots
+
+<!-- Add 3-4 screenshots here: the morning digest (email or Telegram), the jobs
+     page, a match with its score and reasons, and a tailored resume next to the
+     base one. A 60-second screen recording of one morning run is even better. -->
+
+## How matching works
+
+Around 16,500 open postings from 6 applicant-tracking platforms (Ashby, Greenhouse,
+Lever, SmartRecruiters, Workable, Workday) go through a funnel where each stage is
+cheaper than the one after it:
+
+```
+discovery (06:00)
+  -> 1. screen        free, deterministic, drops ~90%    matching/stage1.screen.ts
+  -> 2. vector        local bge-small + pgvector, top 60 matching/stage2.vector.ts
+  -> 3. score         Claude Haiku, prompt-cached (07:00)
+  -> 4. pay gate      stated salary below floor rejects  matching/stage4.pay.ts
+  -> digest (09:00 IST)  STRONG, GOOD, BORDERLINE only   matching/decidable.ts
+  -> tailor           STRONG/GOOD only, Claude Opus      tailoring/provenance.guard.ts
+```
+
+- **Screen.** Title rules, dealbreakers, years of experience, location, freshness,
+  already-applied. Every rejection carries a named reason, so the reason histogram
+  shows which rule is doing the work.
+- **Vector.** A spend cap and an ordering, not a verdict: topical overlap is not
+  fit. It decides which 60 postings are worth a model call.
+- **Score.** Haiku, because this is high-volume rubric classification and the
+  price difference decides whether a daily run is sustainable.
+- **Pay gate.** Asymmetric on purpose: a *stated* salary below the floor rejects,
+  an *estimated* one does not, and unknown pay passes.
+- **Tailor.** Opus, because there are few of these and an overstated resume costs
+  an application. The schema only allows rewrites of existing bullets, and the
+  provenance guard rejects unsupported numbers, new technologies and changed
+  employers. It fails closed: the whole variant is dropped and the base resume is
+  used.
+
+Known limits: the guard only knows technologies in its dictionary and cannot see
+unquantified overstatement ("led" vs "contributed"), which is why a human confirms
+before submit. Title rules match substrings, so excluding "intern" also excludes
+"internal".
+
 ---
 
 ## The one command
@@ -163,6 +205,26 @@ absent, not as a value: dotenv reads `SMTP_PORT=` as the empty string, so the
 schema normalises `''` to undefined before defaults apply. Otherwise an empty line
 in `.env` would fail the port's `.positive()` check and the process would refuse to
 boot over a setting nobody was using.
+
+### Gmail sync (optional)
+
+The tracker can read recruiter mail and suggest stage changes ("Atlassian:
+Applied -> Interviewing", with the sentence that says so). It only suggests;
+nothing changes until you press Apply. Each user connects their own inbox with
+the `gmail.readonly` scope, and the refresh token is stored AES-256-GCM encrypted.
+
+1. In Google Cloud Console, create a project and enable the **Gmail API**.
+2. Set up the **OAuth consent screen**: External, in *Testing* mode, and add each
+   person who will connect as a **test user** (up to 100). Add the scope
+   `.../auth/gmail.readonly`.
+3. Create an **OAuth client ID** of type *Web application*, with the authorised
+   redirect URI `http://localhost:3100/api/me/gmail/callback`.
+4. Put `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` and
+   `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) in `.env`, then restart.
+
+The worker checks every connected inbox hourly at :20; *Sync now* is on the page.
+The first read covers the last 30 days. Only a suggestion's subject, sender and one
+quoted sentence are stored.
 
 ## Requirements
 

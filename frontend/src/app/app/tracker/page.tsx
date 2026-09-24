@@ -1,16 +1,17 @@
-'use client';
+"use client";
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Users } from 'lucide-react';
-import { useState } from 'react';
-import { PageHeader } from '@/components/shell';
-import { Badge, ErrorNote, SkeletonCard } from '@/components/ui';
-import { api, type TrackerView } from '@/lib/api';
-import { cn } from '@/lib/utils';
-import { TrackedApplicationsTab } from './applications';
-import { PeopleTab } from './people';
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ClipboardList, Users } from "lucide-react";
+import { useState } from "react";
+import { PageHeader } from "@/components/shell";
+import { Badge, ErrorNote, SkeletonCard } from "@/components/ui";
+import { api, type TrackerView } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { TrackedApplicationsTab } from "./applications";
+import { GmailPanel } from "./gmail";
+import { PeopleTab } from "./people";
 
-type Tab = 'applications' | 'people';
+type Tab = "applications" | "people";
 
 /**
  * The tracker: what you applied to yourself, and who could refer you.
@@ -34,7 +35,7 @@ type Tab = 'applications' | 'people';
  */
 export default function TrackerPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>('applications');
+  const [tab, setTab] = useState<Tab>("applications");
 
   /**
    * The person whose applications are being shown, set by clicking their count on the People
@@ -49,8 +50,8 @@ export default function TrackerPage() {
   const [focusPerson, setFocusPerson] = useState<string | null>(null);
 
   const tracker = useQuery({
-    queryKey: ['me', 'tracker'],
-    queryFn: () => api.get<TrackerView>('/api/me/tracker'),
+    queryKey: ["me", "tracker"],
+    queryFn: () => api.get<TrackerView>("/api/me/tracker"),
   });
 
   /**
@@ -62,21 +63,26 @@ export default function TrackerPage() {
    * its own copy would leave the other one stale until it was re-mounted.
    */
   const onSettled = (next: TrackerView) => {
-    qc.setQueryData(['me', 'tracker'], next);
+    qc.setQueryData(["me", "tracker"], next);
   };
 
   const view = tracker.data;
 
-  const tabs: { key: Tab; label: string; icon: typeof Users; count?: number }[] = [
+  const tabs: {
+    key: Tab;
+    label: string;
+    icon: typeof Users;
+    count?: number;
+  }[] = [
     {
-      key: 'applications',
-      label: 'Applications',
+      key: "applications",
+      label: "Applications",
       icon: ClipboardList,
       count: view?.applications.length,
     },
     {
-      key: 'people',
-      label: 'People',
+      key: "people",
+      label: "People",
       icon: Users,
       count: view?.contacts.length,
     },
@@ -86,7 +92,7 @@ export default function TrackerPage() {
     <>
       <PageHeader
         title="My tracker"
-        subtitle="Applications you made yourself, and the people who might put a word in. Nothing on this screen is filled in, sent or scored — it is a notebook, and everything in it is what you typed."
+        subtitle="Applications you made yourself, and the people who might put a word in. Nothing on this screen is filled in, sent or scored — it is a notebook, and everything in it is what you typed or approved."
       />
 
       <div className="space-y-4 px-4 pb-6 sm:px-6">
@@ -115,10 +121,10 @@ export default function TrackerPage() {
                 setFocusPerson(null);
               }}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-[var(--r-sm)] px-3 py-1.5 text-[13px] font-medium transition-colors',
+                "inline-flex items-center gap-1.5 rounded-[var(--r-sm)] px-3 py-1.5 text-[13px] font-medium transition-colors",
                 tab === key
-                  ? 'bg-[var(--accent)] text-[var(--accent-ink)]'
-                  : 'text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]',
+                  ? "bg-[var(--accent)] text-[var(--accent-ink)]"
+                  : "text-[var(--ink-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--ink-primary)]",
               )}
             >
               <Icon size={14} aria-hidden />
@@ -132,11 +138,15 @@ export default function TrackerPage() {
           ))}
         </div>
 
+        {view && <GmailPanel onSettled={onSettled} />}
+
         {tracker.isLoading && <SkeletonCard rows={6} />}
-        {tracker.error && <ErrorNote message={(tracker.error as Error).message} />}
+        {tracker.error && (
+          <ErrorNote message={(tracker.error as Error).message} />
+        )}
 
         {view &&
-          (tab === 'applications' ? (
+          (tab === "applications" ? (
             <TrackedApplicationsTab
               view={view}
               onSettled={onSettled}
@@ -149,7 +159,7 @@ export default function TrackerPage() {
               onSettled={onSettled}
               onShowApplications={(contactId) => {
                 setFocusPerson(contactId);
-                setTab('applications');
+                setTab("applications");
               }}
             />
           ))}
@@ -157,11 +167,11 @@ export default function TrackerPage() {
         {view && view.applications.length > 0 && (
           <p className="flex flex-wrap items-center gap-2 px-1 text-xs text-[var(--ink-muted)]">
             <Badge tone="neutral">
-              {view.applications.length} tracked · {view.contacts.length}{' '}
-              {view.contacts.length === 1 ? 'person' : 'people'}
+              {view.applications.length} tracked · {view.contacts.length}{" "}
+              {view.contacts.length === 1 ? "person" : "people"}
             </Badge>
-            Kept only here. Nothing in this list is read by discovery, matching or the
-            morning digest.
+            Kept only here. Nothing in this list is read by discovery, matching
+            or the morning digest.
           </p>
         )}
       </div>

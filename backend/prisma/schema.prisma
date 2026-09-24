@@ -95,6 +95,8 @@ model User {
   tailored         TailoredResume[]
   tracked          TrackedApplication[]
   contacts         TrackedContact[]
+  gmail            GmailConnection?
+  emailSuggestions EmailSuggestion[]
 
   @@index([role])
   /// The admin approval queue: pending accounts, oldest first.
@@ -544,6 +546,7 @@ enum AtsType {
   SMARTRECRUITERS
   WORKABLE
   WORKDAY /// discovered and linked, never auto-filled (PLAN-v2 phase 6)
+  CAREERS_API /// an employer's own careers-site JSON (Atlassian) - linked, never auto-filled
   CUSTOM /// in-house form - handled by the generic form filler
   UNKNOWN
 }
@@ -1152,6 +1155,8 @@ model TrackedApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  emailSuggestions EmailSuggestion[]
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Restrict, NOT SetNull. Deleting a contact named on four applications would quietly
@@ -1221,4 +1226,79 @@ model DailyDigest {
   @@unique([userId, day])
   @@index([userId, day])
   @@map("daily_digests")
+}
+
+/// One candidate's read-only Gmail grant, for the tracker's email sync.
+///
+/// Only the REFRESH token is kept, and only encrypted (AES-256-GCM under
+/// TOKEN_ENCRYPTION_KEY - see secret-box.ts). Access tokens are minted per sync and
+/// never stored. The scope is gmail.readonly: this grant cannot send, delete or label.
+model GmailConnection {
+  userId String @id
+
+  /// The mailbox Google says was connected, shown so the candidate knows which one.
+  email String
+
+  /// `iv.tag.ciphertext`, base64url. Never logged, never returned by any route.
+  refreshTokenEnc String
+
+  /// When the last sync finished. The next one reads mail received after this, so
+  /// each message is looked at once.
+  lastSyncedAt DateTime?
+
+  /// Why the last sync failed, in words for the screen. Cleared on the next success.
+  lastError String?
+
+  connectedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("gmail_connections")
+}
+
+enum EmailSuggestionStatus {
+  PENDING
+  APPLIED
+  DISMISSED
+}
+
+/// Something an email says about an application, waiting for the candidate to accept.
+///
+/// A SUGGESTION AND NEVER A WRITE. The tracker's promise is that every row is something
+/// the candidate put there; a model misreading "unfortunately the office is closed on
+/// Friday" as a rejection must not be able to move a row on its own. So sync writes
+/// here, and only the Apply button writes to tracked_applications.
+///
+/// No email body is stored - the subject, the sender and a short quote are what the
+/// screen needs to let somebody judge the suggestion, and the rest is their mail.
+model EmailSuggestion {
+  id     String @id @default(uuid())
+  userId String
+
+  /// Gmail's message id. Unique per user so a re-sync never suggests the same thing twice.
+  gmailMessageId String
+  receivedAt     DateTime
+  fromAddress    String
+  subject        String
+
+  company       String
+  role          String?
+  proposedStage TrackedStage
+
+  /// The row this is about, or NULL for "this looks like a new application". SET NULL
+  /// on delete, so removing the row leaves the suggestion readable as a new one.
+  trackedApplicationId String?
+
+  /// A sentence from the email that justifies the stage, capped at 300 characters.
+  evidence String
+
+  status    EmailSuggestionStatus @default(PENDING)
+  createdAt DateTime              @default(now())
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackedApplication TrackedApplication? @relation(fields: [trackedApplicationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, gmailMessageId])
+  @@index([userId, status])
+  @@map("email_suggestions")
 }

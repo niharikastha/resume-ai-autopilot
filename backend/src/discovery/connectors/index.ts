@@ -8,6 +8,7 @@
  */
 import { AtsType } from '@prisma/client';
 import { AshbyConnector } from './ashby.connector';
+import { CareersApiConnector } from './careers-api.connector';
 import { GreenhouseConnector } from './greenhouse.connector';
 import { LeverConnector } from './lever.connector';
 import { SmartRecruitersConnector } from './smartrecruiters.connector';
@@ -25,6 +26,8 @@ export const CONNECTORS: readonly Connector[] = [
   // so the cheap single-request sources are asked before the expensive ones - and
   // Workday is skipped by the probe entirely, since its boards cannot be guessed.
   new WorkdayConnector(),
+  // Never probed (not guessable), so its position only matters for readability.
+  new CareersApiConnector(),
 ];
 
 const BY_SOURCE = new Map(CONNECTORS.map((c) => [c.source, c]));

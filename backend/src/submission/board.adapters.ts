@@ -204,6 +204,37 @@ export class WorkdayAdapter implements AtsAdapter {
 }
 
 /**
+ * iCIMS and Darwinbox. careers-api postings (Atlassian) apply on iCIMS, and Darwinbox is
+ * where most large Indian employers' links end up.
+ *
+ * The same refusal as Workday and for the same reason: both put an account wall and a
+ * multi-page flow in front of the form, and the generic filler would half-fill the
+ * login page and report it as coverage.
+ */
+export class ManualOnlyAdapter implements AtsAdapter {
+  readonly atsType = AtsType.CAREERS_API;
+  readonly automated = false;
+
+  canHandle(url: string): boolean {
+    const host = hostOf(url);
+    return host !== null && /(^|\.)(icims\.com|darwinbox\.in)$/.test(host);
+  }
+
+  prefill(): Promise<PrefillResult> {
+    return Promise.resolve({
+      requiredTotal: 0,
+      requiredFilled: 0,
+      fields: [],
+      needsHuman: [
+        'iCIMS and Darwinbox are not automated - they need an account and a ' +
+          'multi-step flow. Open the link and apply by hand.',
+      ],
+      screenshotPath: null,
+    });
+  }
+}
+
+/**
  * Everything else: an in-house careers form.
  *
  * No name table, and a `resolve` pass that asks the LLM which stored value each
@@ -265,6 +296,7 @@ export function boardAdapters(): AtsAdapter[] {
     new SmartRecruitersAdapter(),
     new WorkableAdapter(),
     new WorkdayAdapter(),
+    new ManualOnlyAdapter(),
   ];
 }
 

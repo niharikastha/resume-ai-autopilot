@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation } from "@tanstack/react-query";
 import {
   Building2,
   ClipboardList,
@@ -10,9 +10,9 @@ import {
   Trash2,
   UserPlus,
   X,
-} from 'lucide-react';
-import { useState } from 'react';
-import { useToast } from '@/components/toast';
+} from "lucide-react";
+import { useState } from "react";
+import { useToast } from "@/components/toast";
 import {
   Badge,
   Button,
@@ -24,7 +24,7 @@ import {
   Td,
   Th,
   Tr,
-} from '@/components/ui';
+} from "@/components/ui";
 import {
   api,
   type TrackedApplication,
@@ -32,15 +32,15 @@ import {
   type TrackedContact,
   type TrackedStage,
   type TrackerView,
-} from '@/lib/api';
-import { cn } from '@/lib/utils';
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   referralText,
   shortDay,
   STAGE_COLOR,
   STAGE_LABEL,
   STAGE_ORDER,
-} from './stages';
+} from "./stages";
 
 /**
  * The form's own state, which is all strings and booleans.
@@ -67,38 +67,38 @@ interface ApplicationForm {
 
 function emptyForm(): ApplicationForm {
   return {
-    company: '',
-    role: '',
-    jobUrl: '',
-    careersUrl: '',
+    company: "",
+    role: "",
+    jobUrl: "",
+    careersUrl: "",
     // APPLIED and not SAVED, because the moment somebody opens this form is almost always
     // just after hitting submit somewhere. SAVED is the deliberate choice, so it costs a
     // click; the common case costs none.
-    stage: 'APPLIED',
+    stage: "APPLIED",
     // Today, prefilled, because the date being recorded is nearly always today and typing
     // it is the step at which somebody stops bothering. `en-CA` is the shortest honest way
     // to get YYYY-MM-DD in the READER's timezone; `toISOString().slice(0, 10)` would give
     // UTC, which in India is yesterday's date until half past five in the morning.
-    appliedOn: new Date().toLocaleDateString('en-CA'),
+    appliedOn: new Date().toLocaleDateString("en-CA"),
     linkedInInviteSent: false,
     referralGiven: false,
-    referrerId: '',
-    notes: '',
+    referrerId: "",
+    notes: "",
   };
 }
 
 function formFrom(row: TrackedApplication): ApplicationForm {
   return {
     company: row.company,
-    role: row.role ?? '',
-    jobUrl: row.jobUrl ?? '',
-    careersUrl: row.careersUrl ?? '',
+    role: row.role ?? "",
+    jobUrl: row.jobUrl ?? "",
+    careersUrl: row.careersUrl ?? "",
     stage: row.stage,
-    appliedOn: row.appliedOn ?? '',
+    appliedOn: row.appliedOn ?? "",
     linkedInInviteSent: row.linkedInInviteSent,
     referralGiven: row.referralGiven,
-    referrerId: row.referrer?.id ?? '',
-    notes: row.notes ?? '',
+    referrerId: row.referrer?.id ?? "",
+    notes: row.notes ?? "",
   };
 }
 
@@ -133,7 +133,8 @@ function changes(
   if (next.company.trim() !== original.company.trim()) {
     patch.company = next.company.trim();
   }
-  if (orNull(next.role) !== orNull(original.role)) patch.role = orNull(next.role);
+  if (orNull(next.role) !== orNull(original.role))
+    patch.role = orNull(next.role);
   if (orNull(next.jobUrl) !== orNull(original.jobUrl)) {
     patch.jobUrl = orNull(next.jobUrl);
   }
@@ -154,7 +155,9 @@ function changes(
   // Unticked means nobody, regardless of what the select is still showing - the server's
   // CHECK forbids a named referrer on a row that says no referral was given.
   const nextReferrer = next.referralGiven ? orNull(next.referrerId) : null;
-  const wasReferrer = original.referralGiven ? orNull(original.referrerId) : null;
+  const wasReferrer = original.referralGiven
+    ? orNull(original.referrerId)
+    : null;
   if (next.referralGiven !== original.referralGiven) {
     patch.referralGiven = next.referralGiven;
   }
@@ -208,8 +211,8 @@ function ReferrerPicker({
   idPrefix: string;
 }) {
   const [adding, setAdding] = useState(false);
-  const [name, setName] = useState('');
-  const [company, setCompany] = useState('');
+  const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
   const [saving, setSaving] = useState(false);
 
   const field = (suffix: string) => `${idPrefix}-${suffix}`;
@@ -223,23 +226,23 @@ function ReferrerPicker({
     // with what was typed still in it rather than closing over a failure.
     if (!created) return;
     setReferrer(created.id);
-    setName('');
-    setCompany('');
+    setName("");
+    setCompany("");
     setAdding(false);
   };
 
   return (
     <div className="pl-7">
       <label
-        htmlFor={field('referrer')}
+        htmlFor={field("referrer")}
         className="mb-1 block text-xs text-[var(--ink-muted)]"
       >
         Who
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <select
-          id={field('referrer')}
-          className={cn(controlClass, 'w-full sm:max-w-sm')}
+          id={field("referrer")}
+          className={cn(controlClass, "w-full sm:max-w-sm")}
           value={form.referrerId}
           onChange={(event) => set({ ...form, referrerId: event.target.value })}
         >
@@ -274,14 +277,14 @@ function ReferrerPicker({
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded-[var(--r-md)] border border-[var(--border)] bg-[var(--surface-raised)] p-3">
           <div className="min-w-40 grow">
             <label
-              htmlFor={field('new-name')}
+              htmlFor={field("new-name")}
               className="mb-1 block text-xs text-[var(--ink-muted)]"
             >
               Their name
             </label>
             <input
-              id={field('new-name')}
-              className={cn(controlClass, 'w-full')}
+              id={field("new-name")}
+              className={cn(controlClass, "w-full")}
               placeholder="Priya Nair"
               value={name}
               maxLength={120}
@@ -291,7 +294,7 @@ function ReferrerPicker({
               // the mouse to confirm a single name is the friction this shortcut exists to
               // remove. It is not a <form>, so nothing happens by default.
               onKeyDown={(event) => {
-                if (event.key === 'Enter') {
+                if (event.key === "Enter") {
                   event.preventDefault();
                   void create();
                 }
@@ -300,16 +303,16 @@ function ReferrerPicker({
           </div>
           <div className="min-w-40 grow">
             <label
-              htmlFor={field('new-company')}
+              htmlFor={field("new-company")}
               className="mb-1 block text-xs text-[var(--ink-muted)]"
             >
-              Where they work{' '}
+              Where they work{" "}
               <span className="text-[var(--ink-muted)]">(optional)</span>
             </label>
             <input
-              id={field('new-company')}
-              className={cn(controlClass, 'w-full')}
-              placeholder={form.company.trim() || 'Zoho'}
+              id={field("new-company")}
+              className={cn(controlClass, "w-full")}
+              placeholder={form.company.trim() || "Zoho"}
               value={company}
               maxLength={120}
               onChange={(event) => setCompany(event.target.value)}
@@ -330,23 +333,23 @@ function ReferrerPicker({
             icon={X}
             onClick={() => {
               setAdding(false);
-              setName('');
-              setCompany('');
+              setName("");
+              setCompany("");
             }}
           >
             Never mind
           </Button>
           <p className="w-full text-xs text-[var(--ink-muted)]">
-            Goes on your People tab as well, so you can find them again and see everything
-            they have referred you for.
+            Goes on your People tab as well, so you can find them again and see
+            everything they have referred you for.
           </p>
         </div>
       )}
 
       {contacts.length === 0 && !adding && (
         <p className="mt-1 text-xs text-[var(--ink-muted)]">
-          Nobody on your list yet — “Someone new” adds them without losing what you have
-          typed here.
+          Nobody on your list yet — “Someone new” adds them without losing what
+          you have typed here.
         </p>
       )}
     </div>
@@ -383,14 +386,14 @@ function ApplicationFields({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label
-            htmlFor={field('company')}
+            htmlFor={field("company")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Company
           </label>
           <input
-            id={field('company')}
-            className={cn(controlClass, 'w-full')}
+            id={field("company")}
+            className={cn(controlClass, "w-full")}
             placeholder="Zoho"
             value={form.company}
             maxLength={120}
@@ -399,14 +402,14 @@ function ApplicationFields({
         </div>
         <div>
           <label
-            htmlFor={field('role')}
+            htmlFor={field("role")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Role <span className="text-[var(--ink-muted)]">(optional)</span>
           </label>
           <input
-            id={field('role')}
-            className={cn(controlClass, 'w-full')}
+            id={field("role")}
+            className={cn(controlClass, "w-full")}
             placeholder="Backend Engineer, SDE-2"
             value={form.role}
             maxLength={160}
@@ -418,14 +421,14 @@ function ApplicationFields({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label
-            htmlFor={field('job-url')}
+            htmlFor={field("job-url")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Link to the job
           </label>
           <input
-            id={field('job-url')}
-            className={cn(controlClass, 'w-full')}
+            id={field("job-url")}
+            className={cn(controlClass, "w-full")}
             placeholder="careers.zoho.com/jobs/1234"
             value={form.jobUrl}
             maxLength={500}
@@ -434,18 +437,20 @@ function ApplicationFields({
         </div>
         <div>
           <label
-            htmlFor={field('careers-url')}
+            htmlFor={field("careers-url")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Their careers page
           </label>
           <input
-            id={field('careers-url')}
-            className={cn(controlClass, 'w-full')}
+            id={field("careers-url")}
+            className={cn(controlClass, "w-full")}
             placeholder="zoho.com/careers"
             value={form.careersUrl}
             maxLength={500}
-            onChange={(event) => set({ ...form, careersUrl: event.target.value })}
+            onChange={(event) =>
+              set({ ...form, careersUrl: event.target.value })
+            }
           />
         </div>
       </div>
@@ -453,21 +458,21 @@ function ApplicationFields({
           the first and gets left empty - which is the one that is still working a year
           later, when the posting has 404'd. */}
       <p className="text-xs text-[var(--ink-muted)]">
-        Both, if you have them. The posting disappears the week the role is filled; the
-        careers page is how you check next year whether it reopened.
+        Both, if you have them. The posting disappears the week the role is
+        filled; the careers page is how you check next year whether it reopened.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label
-            htmlFor={field('stage')}
+            htmlFor={field("stage")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Where it got to
           </label>
           <select
-            id={field('stage')}
-            className={cn(controlClass, 'w-full')}
+            id={field("stage")}
+            className={cn(controlClass, "w-full")}
             value={form.stage}
             onChange={(event) =>
               set({ ...form, stage: event.target.value as TrackedStage })
@@ -482,20 +487,22 @@ function ApplicationFields({
         </div>
         <div>
           <label
-            htmlFor={field('applied-on')}
+            htmlFor={field("applied-on")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
-            Applied on{' '}
+            Applied on{" "}
             <span className="text-[var(--ink-muted)]">
-              {form.stage === 'SAVED' ? '(not yet)' : '(optional)'}
+              {form.stage === "SAVED" ? "(not yet)" : "(optional)"}
             </span>
           </label>
           <input
-            id={field('applied-on')}
+            id={field("applied-on")}
             type="date"
-            className={cn(controlClass, 'w-full')}
+            className={cn(controlClass, "w-full")}
             value={form.appliedOn}
-            onChange={(event) => set({ ...form, appliedOn: event.target.value })}
+            onChange={(event) =>
+              set({ ...form, appliedOn: event.target.value })
+            }
           />
         </div>
       </div>
@@ -513,8 +520,8 @@ function ApplicationFields({
           <span>
             I sent a LinkedIn request
             <span className="block text-xs text-[var(--ink-muted)]">
-              To the recruiter or the hiring manager. Here so you do not send a second
-              one three weeks later.
+              To the recruiter or the hiring manager. Here so you do not send a
+              second one three weeks later.
             </span>
           </span>
         </label>
@@ -531,15 +538,15 @@ function ApplicationFields({
               set({
                 ...form,
                 referralGiven: event.target.checked,
-                referrerId: event.target.checked ? form.referrerId : '',
+                referrerId: event.target.checked ? form.referrerId : "",
               })
             }
           />
           <span>
             Somebody referred me
             <span className="block text-xs text-[var(--ink-muted)]">
-              A referral that actually went in, rather than one you asked for and are
-              still waiting on.
+              A referral that actually went in, rather than one you asked for
+              and are still waiting on.
             </span>
           </span>
         </label>
@@ -558,15 +565,15 @@ function ApplicationFields({
 
       <div>
         <label
-          htmlFor={field('notes')}
+          htmlFor={field("notes")}
           className="mb-1 block text-xs text-[var(--ink-muted)]"
         >
           Notes <span className="text-[var(--ink-muted)]">(optional)</span>
         </label>
         <textarea
-          id={field('notes')}
+          id={field("notes")}
           rows={2}
-          className={cn(controlClass, 'w-full resize-y')}
+          className={cn(controlClass, "w-full resize-y")}
           placeholder="Recruiter said they would come back in two weeks. Take-home due Friday."
           value={form.notes}
           maxLength={2000}
@@ -625,7 +632,7 @@ export function TrackedApplicationsTab({
   const [form, setForm] = useState<ApplicationForm>(emptyForm);
   const [editing, setEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<ApplicationForm | null>(null);
-  const [stageFilter, setStageFilter] = useState('');
+  const [stageFilter, setStageFilter] = useState("");
 
   /**
    * NO INVALIDATION ANYWHERE IN THIS FILE, which is unlike most write paths here.
@@ -640,12 +647,12 @@ export function TrackedApplicationsTab({
 
   const add = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.post<TrackerView>('/api/me/tracker/applications', body),
+      api.post<TrackerView>("/api/me/tracker/applications", body),
     onSuccess: (next) => {
       settle(next);
       setForm(emptyForm());
       setAdding(false);
-      toast.success('Tracked.');
+      toast.success("Tracked.");
     },
     onError: (err) => toast.error((err as Error).message),
   });
@@ -686,7 +693,7 @@ export function TrackedApplicationsTab({
    */
   const addPerson = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.post<TrackerView>('/api/me/tracker/contacts', body),
+      api.post<TrackerView>("/api/me/tracker/contacts", body),
     onError: (err) => toast.error((err as Error).message),
   });
 
@@ -732,7 +739,7 @@ export function TrackedApplicationsTab({
   const saveEdit = (row: TrackedApplication) => {
     if (!editForm) return;
     if (editForm.company.trim().length === 0) {
-      toast.error('An application needs a company name.');
+      toast.error("An application needs a company name.");
       return;
     }
     const patch = changes(formFrom(row), editForm);
@@ -784,13 +791,13 @@ export function TrackedApplicationsTab({
           icon={ClipboardList}
           action={
             <Button
-              variant={adding ? 'ghost' : 'primary'}
+              variant={adding ? "ghost" : "primary"}
               size="sm"
               icon={adding ? X : Plus}
               disabled={!adding && full}
               onClick={() => setAdding(!adding)}
             >
-              {adding ? 'Cancel' : 'Track one'}
+              {adding ? "Cancel" : "Track one"}
             </Button>
           }
         />
@@ -853,9 +860,10 @@ export function TrackedApplicationsTab({
               aria-label={`Showing only applications ${focused.name} referred — clear this filter`}
               className="inline-flex items-center gap-1.5 rounded-[var(--r-full)] px-2.5 py-1 text-xs font-medium text-[var(--ink-primary)] transition-opacity hover:opacity-80"
               style={{
-                background: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+                background:
+                  "color-mix(in srgb, var(--accent) 16%, transparent)",
                 boxShadow:
-                  'inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent)',
+                  "inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent)",
               }}
             >
               Referred by {focused.name}
@@ -864,9 +872,9 @@ export function TrackedApplicationsTab({
           )}
 
           {full && (
-            <p className="text-xs" style={{ color: 'var(--status-warning)' }}>
-              That is {view.maxApplications} applications, which is as many as this list
-              holds.
+            <p className="text-xs" style={{ color: "var(--status-warning)" }}>
+              That is {view.maxApplications} applications, which is as many as
+              this list holds.
             </p>
           )}
         </div>
@@ -881,7 +889,9 @@ export function TrackedApplicationsTab({
           <EmptyState
             icon={ClipboardList}
             title={
-              focused ? `Nothing here for ${focused.name}` : 'Nothing at that stage'
+              focused
+                ? `Nothing here for ${focused.name}`
+                : "Nothing at that stage"
             }
             // Which filter to undo, named. "No results" leaves the reader to work out
             // which of the two controls above is hiding their rows.
@@ -890,7 +900,7 @@ export function TrackedApplicationsTab({
                 ? `${focused.name} referred you elsewhere, but nothing at that stage. Choose “Every stage”, or drop the filter on their name.`
                 : focused
                   ? `Nothing names ${focused.name} as the referrer any more — the referral was probably cleared since. Dismiss the filter on their name to see the whole list.`
-                  : 'Choose “Every stage” to see the rest of the list.'
+                  : "Choose “Every stage” to see the rest of the list."
             }
           />
         ) : (
@@ -952,7 +962,9 @@ export function TrackedApplicationsTab({
                           <Button
                             variant="primary"
                             size="sm"
-                            busy={edit.isPending && edit.variables?.id === row.id}
+                            busy={
+                              edit.isPending && edit.variables?.id === row.id
+                            }
                             onClick={() => saveEdit(row)}
                           >
                             Save
@@ -975,7 +987,7 @@ export function TrackedApplicationsTab({
                   <Td className="align-top">
                     <select
                       aria-label={`Stage for ${row.company}`}
-                      className={cn(controlClass, 'py-1 text-xs')}
+                      className={cn(controlClass, "py-1 text-xs")}
                       // Tinted by outcome, so a column of forty rows can be read without
                       // reading any of the words in it. Colour is never the only signal -
                       // the selected option says the same thing.
@@ -1013,7 +1025,9 @@ export function TrackedApplicationsTab({
                       <LinkChip href={row.jobUrl} label="Job" />
                       <LinkChip href={row.careersUrl} label="Careers" />
                       {!row.jobUrl && !row.careersUrl && (
-                        <span className="text-xs text-[var(--ink-muted)]">—</span>
+                        <span className="text-xs text-[var(--ink-muted)]">
+                          —
+                        </span>
                       )}
                     </span>
                   </Td>
@@ -1026,7 +1040,7 @@ export function TrackedApplicationsTab({
                           Invite sent
                         </Badge>
                       )}
-                      <Badge tone={row.referralGiven ? 'good' : 'neutral'}>
+                      <Badge tone={row.referralGiven ? "good" : "neutral"}>
                         {referralText(row)}
                       </Badge>
                     </span>
@@ -1047,13 +1061,15 @@ export function TrackedApplicationsTab({
                           }
                         }}
                       >
-                        {open ? 'Close' : 'Edit'}
+                        {open ? "Close" : "Edit"}
                       </Button>
                       <Button
                         size="sm"
                         variant="danger"
                         icon={Trash2}
-                        busy={remove.isPending && remove.variables?.id === row.id}
+                        busy={
+                          remove.isPending && remove.variables?.id === row.id
+                        }
                         onClick={() =>
                           remove.mutate({ id: row.id, company: row.company })
                         }
@@ -1070,9 +1086,9 @@ export function TrackedApplicationsTab({
 
       <p className="flex items-start gap-1.5 px-1 text-xs text-[var(--ink-muted)]">
         <Building2 size={13} className="mt-0.5 shrink-0" aria-hidden />
-        Separate from the Applications screen on purpose. That one is what this system
-        prepared for you; this one is what you did yourself, and nothing you write here
-        changes what gets discovered or scored.
+        Separate from the Applications screen on purpose. That one is what this
+        system prepared for you; this one is what you did yourself, and nothing
+        you write here changes what gets discovered or scored.
       </p>
     </div>
   );

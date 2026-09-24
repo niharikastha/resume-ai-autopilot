@@ -312,6 +312,7 @@ export const companyProbeInput = z.object({
     'SMARTRECRUITERS',
     'WORKABLE',
     'WORKDAY',
+    'CAREERS_API',
     'CUSTOM',
     'UNKNOWN',
   ]),

@@ -247,6 +247,27 @@ export const envSchema = z.object({
       .default('false')
       .transform((v) => v === 'true'),
   ),
+  /**
+   * Google OAuth for the tracker's Gmail sync. All four or the feature is off - the
+   * tracker says so rather than showing a button that cannot work.
+   *
+   * GOOGLE_REDIRECT_URI must be registered on the OAuth client EXACTLY, and points at
+   * this API (not the web app): `http://localhost:3100/api/me/gmail/callback` locally.
+   * TOKEN_ENCRYPTION_KEY is 32 random bytes, base64 - `openssl rand -base64 32`.
+   * Changing it makes every stored grant unreadable, which means everyone reconnects.
+   */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: blank(z.string().url().optional()),
+  TOKEN_ENCRYPTION_KEY: blank(
+    z
+      .string()
+      .refine((v) => Buffer.from(v, 'base64').length === 32, {
+        message: 'must be 32 bytes, base64 - generate with `openssl rand -base64 32`',
+      })
+      .optional(),
+  ),
+
   /** The From header. Many providers reject a From that is not the authenticated
    *  mailbox, so this defaults to SMTP_USER rather than to something invented. */
   MAIL_FROM: z.string().optional(),

@@ -101,6 +101,7 @@ t1_global_india_office:
   hackerrank: HackerRank
   observeai: Observe.AI
   netradyne: Netradyne
+  airbnb: Airbnb
 
   # Data and infrastructure.
   snowflake: Snowflake
@@ -131,7 +132,11 @@ t1_global_india_office:
   dagster: Dagster
 
   # Developer tooling and platform.
-  atlassian: Atlassian
+  atlassian:
+    name: Atlassian
+    ats: CAREERS_API
+    token: atlassian
+    note: 287 postings, 48 India (verified 2026-09-24). iCIMS behind it; read from atlassian.com's own listings JSON.
   gitlab: GitLab
   hashicorp: HashiCorp
   cloudflare: Cloudflare
@@ -594,6 +599,11 @@ t1_global_india_office:
     ats: WORKDAY
     token: spgi:wd5:SPGI_Careers
     note: 298 postings. Large Gurgaon and Hyderabad presence.
+  boeing:
+    name: Boeing
+    ats: WORKDAY
+    token: boeing:wd1:EXTERNAL_CAREERS
+    note: 737 postings, ~16 India (verified 2026-09-24). Bangalore and Chennai engineering centres.
 
 # -----------------------------------------------------------------------------
 # T2 - WELL-FUNDED INDIAN PRODUCT STARTUPS
@@ -616,7 +626,11 @@ t2_funded_indian_startup:
 
   # Fintech and lending.
   razorpay: Razorpay
-  phonepe: PhonePe
+  phonepe:
+    name: PhonePe
+    ats: SMARTRECRUITERS
+    token: PHONEPELIMITED
+    note: 78 public postings (verified 2026-09-24). Found via phonepe.com/apollo/job-postings/latest.json, whose applyUrls point here; `phonepe` misses.
   cred: CRED
   zerodha: Zerodha
   upstox: Upstox

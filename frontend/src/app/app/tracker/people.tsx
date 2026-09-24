@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation } from "@tanstack/react-query";
 import {
   ArrowRight,
   ExternalLink,
@@ -10,9 +10,9 @@ import {
   UserPlus,
   Users,
   X,
-} from 'lucide-react';
-import { useState } from 'react';
-import { useToast } from '@/components/toast';
+} from "lucide-react";
+import { useState } from "react";
+import { useToast } from "@/components/toast";
 import {
   Badge,
   Button,
@@ -20,14 +20,14 @@ import {
   CardHeader,
   controlClass,
   EmptyState,
-} from '@/components/ui';
+} from "@/components/ui";
 import {
   api,
   type TrackedContact,
   type TrackedContactPatch,
   type TrackerView,
-} from '@/lib/api';
-import { cn } from '@/lib/utils';
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 /** The form's own state: all strings, because that is what an input holds. */
 interface ContactForm {
@@ -40,17 +40,24 @@ interface ContactForm {
 }
 
 function emptyForm(): ContactForm {
-  return { name: '', company: '', role: '', linkedInUrl: '', email: '', note: '' };
+  return {
+    name: "",
+    company: "",
+    role: "",
+    linkedInUrl: "",
+    email: "",
+    note: "",
+  };
 }
 
 function formFrom(contact: TrackedContact): ContactForm {
   return {
     name: contact.name,
-    company: contact.company ?? '',
-    role: contact.role ?? '',
-    linkedInUrl: contact.linkedInUrl ?? '',
-    email: contact.email ?? '',
-    note: contact.note ?? '',
+    company: contact.company ?? "",
+    role: contact.role ?? "",
+    linkedInUrl: contact.linkedInUrl ?? "",
+    email: contact.email ?? "",
+    note: contact.note ?? "",
   };
 }
 
@@ -60,20 +67,25 @@ function orNull(value: string): string | null {
 }
 
 /** What changed, as a PATCH body. Same reasoning as the applications tab. */
-function changes(original: ContactForm, next: ContactForm): TrackedContactPatch {
+function changes(
+  original: ContactForm,
+  next: ContactForm,
+): TrackedContactPatch {
   const patch: TrackedContactPatch = {};
   if (next.name.trim() !== original.name.trim()) patch.name = next.name.trim();
   if (orNull(next.company) !== orNull(original.company)) {
     patch.company = orNull(next.company);
   }
-  if (orNull(next.role) !== orNull(original.role)) patch.role = orNull(next.role);
+  if (orNull(next.role) !== orNull(original.role))
+    patch.role = orNull(next.role);
   if (orNull(next.linkedInUrl) !== orNull(original.linkedInUrl)) {
     patch.linkedInUrl = orNull(next.linkedInUrl);
   }
   if (orNull(next.email) !== orNull(original.email)) {
     patch.email = orNull(next.email);
   }
-  if (orNull(next.note) !== orNull(original.note)) patch.note = orNull(next.note);
+  if (orNull(next.note) !== orNull(original.note))
+    patch.note = orNull(next.note);
   return patch;
 }
 
@@ -94,14 +106,14 @@ function ContactFields({
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label
-            htmlFor={field('name')}
+            htmlFor={field("name")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Name
           </label>
           <input
-            id={field('name')}
-            className={cn(controlClass, 'w-full')}
+            id={field("name")}
+            className={cn(controlClass, "w-full")}
             placeholder="Priya Nair"
             value={form.name}
             maxLength={120}
@@ -110,14 +122,14 @@ function ContactFields({
         </div>
         <div>
           <label
-            htmlFor={field('company')}
+            htmlFor={field("company")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Where they work
           </label>
           <input
-            id={field('company')}
-            className={cn(controlClass, 'w-full')}
+            id={field("company")}
+            className={cn(controlClass, "w-full")}
             placeholder="Zoho"
             value={form.company}
             maxLength={120}
@@ -126,14 +138,14 @@ function ContactFields({
         </div>
         <div>
           <label
-            htmlFor={field('role')}
+            htmlFor={field("role")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Their role
           </label>
           <input
-            id={field('role')}
-            className={cn(controlClass, 'w-full')}
+            id={field("role")}
+            className={cn(controlClass, "w-full")}
             placeholder="Engineering Manager"
             value={form.role}
             maxLength={160}
@@ -145,31 +157,33 @@ function ContactFields({
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label
-            htmlFor={field('linkedin')}
+            htmlFor={field("linkedin")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             LinkedIn
           </label>
           <input
-            id={field('linkedin')}
-            className={cn(controlClass, 'w-full')}
+            id={field("linkedin")}
+            className={cn(controlClass, "w-full")}
             placeholder="linkedin.com/in/priya-nair"
             value={form.linkedInUrl}
             maxLength={500}
-            onChange={(event) => set({ ...form, linkedInUrl: event.target.value })}
+            onChange={(event) =>
+              set({ ...form, linkedInUrl: event.target.value })
+            }
           />
         </div>
         <div>
           <label
-            htmlFor={field('email')}
+            htmlFor={field("email")}
             className="mb-1 block text-xs text-[var(--ink-muted)]"
           >
             Email
           </label>
           <input
-            id={field('email')}
+            id={field("email")}
             type="email"
-            className={cn(controlClass, 'w-full')}
+            className={cn(controlClass, "w-full")}
             placeholder="priya@example.com"
             value={form.email}
             maxLength={200}
@@ -180,14 +194,14 @@ function ContactFields({
 
       <div>
         <label
-          htmlFor={field('note')}
+          htmlFor={field("note")}
           className="mb-1 block text-xs text-[var(--ink-muted)]"
         >
           How you know them
         </label>
         <input
-          id={field('note')}
-          className={cn(controlClass, 'w-full')}
+          id={field("note")}
+          className={cn(controlClass, "w-full")}
           // An example rather than an instruction, for the reason KIND_TEXT_PLACEHOLDER
           // gives: "enter a note" tells nobody anything they had not worked out.
           placeholder="Worked together at Freshworks; happy to be asked again"
@@ -234,12 +248,12 @@ export function PeopleTab({
 
   const add = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.post<TrackerView>('/api/me/tracker/contacts', body),
+      api.post<TrackerView>("/api/me/tracker/contacts", body),
     onSuccess: (next) => {
       settle(next);
       setForm(emptyForm());
       setAdding(false);
-      toast.success('Added. They will show up in the referrer list.');
+      toast.success("Added. They will show up in the referrer list.");
     },
     onError: (err) => toast.error((err as Error).message),
   });
@@ -277,7 +291,9 @@ export function PeopleTab({
       name: form.name.trim(),
       ...(form.company.trim() ? { company: form.company.trim() } : {}),
       ...(form.role.trim() ? { role: form.role.trim() } : {}),
-      ...(form.linkedInUrl.trim() ? { linkedInUrl: form.linkedInUrl.trim() } : {}),
+      ...(form.linkedInUrl.trim()
+        ? { linkedInUrl: form.linkedInUrl.trim() }
+        : {}),
       ...(form.email.trim() ? { email: form.email.trim() } : {}),
       ...(form.note.trim() ? { note: form.note.trim() } : {}),
     });
@@ -286,7 +302,7 @@ export function PeopleTab({
   const saveEdit = (contact: TrackedContact) => {
     if (!editForm) return;
     if (editForm.name.trim().length === 0) {
-      toast.error('A person needs a name.');
+      toast.error("A person needs a name.");
       return;
     }
     const patch = changes(formFrom(contact), editForm);
@@ -307,13 +323,13 @@ export function PeopleTab({
           icon={Users}
           action={
             <Button
-              variant={adding ? 'ghost' : 'primary'}
+              variant={adding ? "ghost" : "primary"}
               size="sm"
               icon={adding ? X : UserPlus}
               disabled={!adding && full}
               onClick={() => setAdding(!adding)}
             >
-              {adding ? 'Cancel' : 'Add someone'}
+              {adding ? "Cancel" : "Add someone"}
             </Button>
           }
         />
@@ -332,7 +348,8 @@ export function PeopleTab({
                 Add person
               </Button>
               <p className="text-xs text-[var(--ink-muted)]">
-                Only the name is required. Nothing on this screen contacts anybody.
+                Only the name is required. Nothing on this screen contacts
+                anybody.
               </p>
             </div>
           </div>
@@ -341,10 +358,11 @@ export function PeopleTab({
         {full && (
           <p
             className="border-b border-[var(--border)] px-5 py-3 text-xs"
-            style={{ color: 'var(--status-warning)' }}
+            style={{ color: "var(--status-warning)" }}
           >
-            That is {view.maxContacts} people, which is as many as this list holds. It is
-            meant to be the ones who would vouch for you rather than everyone you have met.
+            That is {view.maxContacts} people, which is as many as this list
+            holds. It is meant to be the ones who would vouch for you rather
+            than everyone you have met.
           </p>
         )}
 
@@ -383,14 +401,18 @@ export function PeopleTab({
                             // Spelled out for a screen reader, where "3 referrals" on its own
                             // gives no hint that it goes anywhere.
                             aria-label={`Show the ${contact.referrals} application${
-                              contact.referrals === 1 ? '' : 's'
+                              contact.referrals === 1 ? "" : "s"
                             } ${contact.name} referred`}
                             className="rounded-[var(--r-full)] transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
                           >
                             <Badge tone="good">
                               {contact.referrals} referral
-                              {contact.referrals === 1 ? '' : 's'}
-                              <ArrowRight size={10} className="ml-1" aria-hidden />
+                              {contact.referrals === 1 ? "" : "s"}
+                              <ArrowRight
+                                size={10}
+                                className="ml-1"
+                                aria-hidden
+                              />
                             </Badge>
                           </button>
                         )}
@@ -400,7 +422,7 @@ export function PeopleTab({
                         <p className="mt-0.5 text-xs text-[var(--ink-secondary)]">
                           {[contact.role, contact.company]
                             .filter(Boolean)
-                            .join(' · ')}
+                            .join(" · ")}
                         </p>
                       )}
 
@@ -448,14 +470,15 @@ export function PeopleTab({
                           }
                         }}
                       >
-                        {open ? 'Close' : 'Edit'}
+                        {open ? "Close" : "Edit"}
                       </Button>
                       <Button
                         size="sm"
                         variant="danger"
                         icon={Trash2}
                         busy={
-                          remove.isPending && remove.variables?.id === contact.id
+                          remove.isPending &&
+                          remove.variables?.id === contact.id
                         }
                         onClick={() =>
                           remove.mutate({ id: contact.id, name: contact.name })
@@ -476,7 +499,9 @@ export function PeopleTab({
                         <Button
                           variant="primary"
                           size="sm"
-                          busy={edit.isPending && edit.variables?.id === contact.id}
+                          busy={
+                            edit.isPending && edit.variables?.id === contact.id
+                          }
                           onClick={() => saveEdit(contact)}
                         >
                           Save
@@ -502,9 +527,9 @@ export function PeopleTab({
       </Card>
 
       <p className="px-1 text-xs text-[var(--ink-muted)]">
-        Somebody named as the referrer on an application cannot be removed until that
-        referral is cleared. Deleting them would turn “referred by them” into “referred by
-        nobody” with nothing left to show it happened.
+        Somebody named as the referrer on an application cannot be removed until
+        that referral is cleared. Deleting them would turn “referred by them”
+        into “referred by nobody” with nothing left to show it happened.
       </p>
     </div>
   );

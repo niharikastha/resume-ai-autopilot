@@ -1,4 +1,4 @@
-import type { TrackedApplication, TrackedStage } from '@/lib/api';
+import type { TrackedApplication, TrackedStage } from "@/lib/api";
 
 /**
  * The stages of a hand-tracked application, in the order they happen.
@@ -10,25 +10,25 @@ import type { TrackedApplication, TrackedStage } from '@/lib/api';
  * screen an "Offer" it can never reach.
  */
 export const STAGE_ORDER: TrackedStage[] = [
-  'SAVED',
-  'APPLIED',
-  'SCREENING',
-  'INTERVIEWING',
-  'OFFER',
-  'REJECTED',
-  'GHOSTED',
+  "SAVED",
+  "APPLIED",
+  "SCREENING",
+  "INTERVIEWING",
+  "OFFER",
+  "REJECTED",
+  "GHOSTED",
 ];
 
 export const STAGE_LABEL: Record<TrackedStage, string> = {
-  SAVED: 'Saved, not applied',
-  APPLIED: 'Applied',
-  SCREENING: 'Screening',
-  INTERVIEWING: 'Interviewing',
-  OFFER: 'Offer',
-  REJECTED: 'Rejected',
+  SAVED: "Saved, not applied",
+  APPLIED: "Applied",
+  SCREENING: "Screening",
+  INTERVIEWING: "Interviewing",
+  OFFER: "Offer",
+  REJECTED: "Rejected",
   // "No answer" rather than "Ghosted", which is a word about them rather than about the
   // state of the application - and this is a list somebody reads on a bad afternoon.
-  GHOSTED: 'No answer',
+  GHOSTED: "No answer",
 };
 
 /**
@@ -50,26 +50,26 @@ export const STAGE_LABEL: Record<TrackedStage, string> = {
 export const STAGE_COLOR: Record<TrackedStage, string | null> = {
   SAVED: null,
   APPLIED: null,
-  SCREENING: 'var(--accent)',
-  INTERVIEWING: 'var(--accent)',
-  OFFER: 'var(--status-good)',
-  REJECTED: 'var(--status-critical)',
-  GHOSTED: 'var(--status-warning)',
+  SCREENING: "var(--accent)",
+  INTERVIEWING: "var(--accent)",
+  OFFER: "var(--status-good)",
+  REJECTED: "var(--status-critical)",
+  GHOSTED: "var(--status-warning)",
 };
 
 const MONTHS_SHORT = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 /**
@@ -83,8 +83,8 @@ const MONTHS_SHORT = [
  * heading. Forty of those down a column is not readable, hence a second formatter.
  */
 export function shortDay(day: string | null): string {
-  if (!day) return '—';
-  const [y, m, d] = day.split('-').map(Number);
+  if (!day) return "—";
+  const [y, m, d] = day.split("-").map(Number);
   if (!y || !m || !d) return day;
   return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
@@ -97,8 +97,8 @@ export function shortDay(day: string | null): string {
  * it into "no referral" would quietly delete the more useful half of what somebody wrote.
  */
 export function referralText(row: TrackedApplication): string {
-  if (!row.referralGiven) return 'No referral';
-  if (!row.referrer) return 'Referred, source not recorded';
+  if (!row.referralGiven) return "No referral";
+  if (!row.referrer) return "Referred, source not recorded";
   return row.referrer.company
     ? `Referred by ${row.referrer.name} · ${row.referrer.company}`
     : `Referred by ${row.referrer.name}`;
